@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Internship Autofill — Your Profile</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <img src="../icons/icon32.png" alt="" width="24" height="24" />
+      <h1>Internship Autofill</h1>
+      <div class="topbar-actions">
+        <button id="exportBtn" class="btn btn-ghost" type="button">Export</button>
+        <button id="importBtn" class="btn btn-ghost" type="button">Import</button>
+        <input id="importFile" type="file" accept="application/json" hidden />
+        <button id="clearBtn" class="btn btn-ghost btn-danger" type="button">Clear All</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="page">
+    <p class="intro">
+      This information is stored only on this device (<code>chrome.storage.local</code>) and is
+      only used to fill forms on pages where you click <strong>Autofill</strong>. Leave anything
+      blank that you'd rather answer by hand.
+    </p>
+
+    <form id="profileForm"></form>
+  </main>
+
+  <div id="saveBar" class="save-bar">
+    <span id="saveStatus" class="save-status"></span>
+    <button id="saveBtn" class="btn btn-primary" type="button">Save Profile</button>
+  </div>
+
+  <script src="profileSchema.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>
