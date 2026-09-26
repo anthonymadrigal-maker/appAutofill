@@ -53,13 +53,17 @@ const FIELD_RULES = {
 
   // "college" alone is too common in unrelated questions (e.g. "current
   // year of study in college"), so it only counts here alongside a word
-  // that means "which one do you attend" / "what is its name".
+  // that means "which one do you attend" / "what is its name". The
+  // lookbehind on "school" excludes "graduate school"/"grad school" (a
+  // question about your plans, not your school's name) — that's its own
+  // key below, checked first.
   school: [
-    /\bschool\b/, /\buniversity\b/, /\binstitution\b/, /\balma\s*mater\b/,
+    /(?<!graduate\s)(?<!grad\s)\bschool\b/, /\buniversity\b/, /\binstitution\b/, /\balma\s*mater\b/,
     /\b(college|university)\s*(name)?\b.*\b(attend|currently\s*attend)\b/,
     /\bname\s*of\s*the\s*(college|university)\b/,
     /\bwhat\s*college\b/, /\bwhich\s*college\b/
   ],
+  planToAttendGradSchool: [/\bgraduate\s*school\b/, /\bgrad\s*school\b/],
   // Checked before "school" isn't necessary since school no longer matches
   // bare "college", but keep this ahead of "degree" — both mention academic
   // progress and "year of study" shouldn't fall through to a degree-level
@@ -152,7 +156,7 @@ const FIELD_MATCH_ORDER = [
   "email", "phone",
   "addressZip", "addressState", "addressCity", "addressCountry", "addressStreet",
   "linkedin", "github", "portfolio",
-  "school", "classStanding", "gpaScale", "gpa", "major", "minor",
+  "planToAttendGradSchool", "school", "classStanding", "gpaScale", "gpa", "major", "minor",
   "graduationMonth", "graduationYear", "graduationDate", "degree",
   "currentlyWorking", "employer", "jobTitle", "workStartDate", "workEndDate", "workDescription",
   "usCitizen", "needsSponsorship", "workAuthorized", "over18", "felonyConviction", "nonCompete",

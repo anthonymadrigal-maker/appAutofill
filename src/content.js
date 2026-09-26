@@ -173,10 +173,30 @@
   // Hispanic/Latino, that option is preferred over whatever plain race
   // value is stored — matches instruction, and is also the more complete/
   // correct answer on a form that only allows picking one.
+  // US academic-term convention: a December graduation is normally
+  // completing the Fall semester, not literally "Winter" — matches how
+  // schools actually label these terms, not a calendar-season reading.
+  const SEASON_BY_MONTH = {
+    january: "Winter", february: "Winter",
+    march: "Spring", april: "Spring", may: "Spring",
+    june: "Summer", july: "Summer", august: "Summer",
+    september: "Fall", october: "Fall", november: "Fall", december: "Fall"
+  };
+  const SEASON_WORD_PATTERN = /\b(spring|summer|fall|winter)\b/i;
+
   function getEffectiveValue(key, profile, optionTexts) {
     if (key === "race" && (profile.hispanicLatino || "").trim().toLowerCase() === "yes" && optionTexts) {
       const hispanicOption = optionTexts.find((t) => HISPANIC_OPTION_PATTERN.test(t));
       if (hispanicOption) return hispanicOption;
+    }
+    if (key === "graduationDate" && optionTexts && optionTexts.some((t) => SEASON_WORD_PATTERN.test(t))) {
+      // The dropdown offers term names (Spring/Summer/Fall/Winter), not
+      // literal months — a stored month like "December" shares no words
+      // with any of those options, so plain fuzzy matching just picks
+      // whichever season happens to score/tie-break first. Translate the
+      // stored month to its term instead.
+      const season = SEASON_BY_MONTH[(profile.graduationMonth || "").trim().toLowerCase()];
+      if (season) return `${season} ${profile.graduationYear || ""}`.trim();
     }
     return resolveValue(key, profile);
   }
@@ -629,6 +649,21 @@
   const LISTBOX_SELECTOR = '[role="listbox"], [class*="__menu"]';
   const CUSTOM_WIDGET_OPEN_TIMEOUT_MS = 1500;
 
+  // Some custom dropdowns show their label only as a placeholder that
+  // disappears once a default value is already selected (confirmed on a
+  // real site: a phone country-code picker's "Country" placeholder was
+  // gone by the time the page was scanned, since it already had a default
+  // value, so the nearby-text walk fell back to the next real label it
+  // could find — "Phone" — and typed a raw phone number into a country
+  // selector). Rather than chase every such case, these keys represent
+  // inherently free-form data that no legitimate dropdown/select would
+  // ever represent, so they're never eligible for the click-a-widget
+  // filling path regardless of what key the matcher lands on.
+  const NEVER_DROPDOWN_KEYS = new Set([
+    "phone", "email", "linkedin", "github", "portfolio",
+    "workDescription", "addressStreet", "firstName", "lastName", "preferredName"
+  ]);
+
   function waitFor(predicate, timeoutMs, intervalMs = 100) {
     return new Promise((resolve) => {
       const start = Date.now();
@@ -779,7 +814,13 @@
 
   const QUERY_STOPWORDS = new Set([
     "i", "am", "is", "are", "a", "an", "the", "to", "of", "or", "and", "not",
-    "my", "me", "you", "your", "will", "would", "have", "has", "do", "does"
+    "my", "me", "you", "your", "will", "would", "have", "has", "do", "does",
+    // Generic category nouns that are often the *longest* word in a name
+    // but the least distinctive (e.g. "University" in "University of
+    // Southern California" — searching for just that returns almost any
+    // school, "Academy of Art University" included).
+    "university", "college", "institute", "institution", "school",
+    "corporation", "company", "incorporated"
   ]);
 
   // Query terms to try, in order, when a search is actually required: the
@@ -816,7 +857,7 @@
         const signal = getFieldSignal(trigger) + " " + normalizeSignal(findNearbyQuestionText(trigger));
         if (CONDITIONAL_FOLLOWUP_PATTERN.test(signal)) continue;
         const key = matchKeyForSignal(signal);
-        if (!key) continue;
+        if (!key || NEVER_DROPDOWN_KEYS.has(key)) continue;
         if (!keyHasFillableValue(key, profile)) continue;
         await fillCustomTrigger(trigger, key, profile);
         await sleep(150);
@@ -835,7 +876,7 @@
         const signal = getFieldSignal(inputEl) + " " + normalizeSignal(findNearbyQuestionText(inputEl));
         if (CONDITIONAL_FOLLOWUP_PATTERN.test(signal)) continue;
         const key = matchKeyForSignal(signal);
-        if (!key) continue;
+        if (!key || NEVER_DROPDOWN_KEYS.has(key)) continue;
         if (!keyHasFillableValue(key, profile)) continue;
         await fillPaginatedCombobox(inputEl, key, profile);
         await sleep(150);

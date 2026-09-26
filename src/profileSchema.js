@@ -59,6 +59,7 @@ const PROFILE_SCHEMA = [
           "Graduate / Master's Student", "PhD Candidate", "Recent Graduate"
         ]
       },
+      { key: "planToAttendGradSchool", label: "Do you plan to attend graduate school?", type: "yesno" },
       { key: "gpa", label: "GPA", type: "text" },
       { key: "gpaScale", label: "GPA Scale", type: "text", default: "4.0" },
       {
