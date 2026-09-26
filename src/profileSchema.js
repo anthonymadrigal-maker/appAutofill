@@ -50,6 +50,15 @@ const PROFILE_SCHEMA = [
       },
       { key: "major", label: "Major / Field of Study", type: "text" },
       { key: "minor", label: "Minor (optional)", type: "text" },
+      {
+        key: "classStanding",
+        label: "Class Standing / Year in School",
+        type: "select",
+        options: [
+          "Freshman", "Sophomore", "Junior", "Senior",
+          "Graduate / Master's Student", "PhD Candidate", "Recent Graduate"
+        ]
+      },
       { key: "gpa", label: "GPA", type: "text" },
       { key: "gpaScale", label: "GPA Scale", type: "text", default: "4.0" },
       {
@@ -85,7 +94,12 @@ const PROFILE_SCHEMA = [
       { key: "needsSponsorship", label: "Will you now or in the future require sponsorship for employment visa status?", type: "yesno" },
       { key: "over18", label: "Are you at least 18 years old?", type: "yesno" },
       { key: "felonyConviction", label: "Have you ever been convicted of a felony?", type: "yesno" },
-      { key: "nonCompete", label: "Are you subject to a non-compete agreement?", type: "yesno" }
+      { key: "nonCompete", label: "Are you subject to a non-compete agreement?", type: "yesno" },
+      { key: "previouslyEmployedHere", label: "Have you previously been employed by this company?", type: "yesno" },
+      { key: "consentBackgroundCheck", label: "Do you consent to a background check?", type: "yesno" },
+      { key: "securityClearanceEligible", label: "Are you eligible to obtain a security clearance?", type: "yesno" },
+      { key: "securityClearanceGranted", label: "Have you ever been granted a security clearance?", type: "yesno" },
+      { key: "clearanceLevel", label: "Level of Clearance (if applicable)", type: "text" }
     ]
   },
   {
@@ -137,6 +151,23 @@ const PROFILE_SCHEMA = [
           "No, I do not have a disability",
           "I don't wish to answer"
         ]
+      }
+    ]
+  },
+  {
+    id: "logistics",
+    title: "Referral & Logistics",
+    fields: [
+      { key: "referredByEmployee", label: "Were you referred by a current employee?", type: "yesno" },
+      { key: "referrerName", label: "Referring Employee's Name", type: "text" },
+      { key: "willingToTravel", label: "Willing to travel for this role?", type: "yesno" },
+      { key: "travelPercentage", label: "Percentage of Travel You'll Accept", type: "text", placeholder: "e.g. 25%" },
+      { key: "validDriversLicense", label: "Do you have a valid driver's license?", type: "yesno" },
+      {
+        key: "preferredRegion",
+        label: "Preferred U.S. Region",
+        type: "select",
+        options: ["Northeast", "Southeast", "Southwest", "West", "Midwest", "Any"]
       }
     ]
   },

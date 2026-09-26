@@ -27,7 +27,13 @@ const FIELD_RULES = {
   phone: [/\bphone\b/, /\bmobile\b/, /\btelephone\b/, /\bcell\s*number\b/, /\bcontact\s*number\b/],
 
   addressZip: [/\bzip\b/, /\bpostal\s*code\b/, /\bpost\s*code\b/],
-  addressState: [/\bstate\b/, /\bprovince\b/, /\bregion\b(?!.*(country|world))/],
+  // The trailing lookahead excludes any signal that mentions "preferred"
+  // anywhere at all (label text and id/name attributes all get concatenated
+  // into one signal string, so "preferred" and "region" can end up far
+  // apart in it) — those are a "preferred region" question, a separate
+  // PROFILE_SCHEMA field, not this address field, even though both
+  // mention the word "region".
+  addressState: [/\bstate\b/, /\bprovince\b/, /^(?!.*\bprefer(red)?\b).*\bregion\b(?!.*(country|world))/],
   addressCity: [/\bcity\b/, /\btown\b/],
   addressCountry: [/\bcountry\b/, /\bnation(ality)?\b/],
   addressStreet: [/\baddress\s*line\s*1\b/, /\bstreet\s*address\b/, /\bmailing\s*address\b/, /\bstreet\b/, /\baddress\b/],
@@ -44,6 +50,14 @@ const FIELD_RULES = {
     /\b(college|university)\s*(name)?\b.*\b(attend|currently\s*attend)\b/,
     /\bname\s*of\s*the\s*(college|university)\b/,
     /\bwhat\s*college\b/, /\bwhich\s*college\b/
+  ],
+  // Checked before "school" isn't necessary since school no longer matches
+  // bare "college", but keep this ahead of "degree" — both mention academic
+  // progress and "year of study" shouldn't fall through to a degree-level
+  // select.
+  classStanding: [
+    /\bclass\s*standing\b/, /\byear\s*of\s*study\b/, /\bacademic\s*(standing|level)\b/,
+    /\bstudent\s*(level|classification)\b/, /\bcurrent\s*year\s*in\s*(school|college)\b/
   ],
   gpaScale: [/\bgpa\s*scale\b/, /\bscale\s*max\b/],
   gpa: [/\bgpa\b/, /\bgrade\s*point\s*average\b/],
@@ -74,12 +88,32 @@ const FIELD_RULES = {
   over18: [/\b18\s*years\s*(of\s*age|old)\b/, /\bat\s*least\s*18\b/, /\bage\s*of\s*majority\b/],
   felonyConviction: [/\bfelony\b/, /\bconvicted\s*of\s*a\s*crime\b/, /\bcriminal\s*(history|record|conviction)\b/],
   nonCompete: [/\bnon[\s-]?compete\b/, /\bnoncompete\b/],
+  clearanceLevel: [/\blevel\s*of\s*clearance\b/, /\bclearance\s*level\b/],
+  securityClearanceEligible: [/\beligib(le|ility)\b.*\bclearance\b/, /\bcan\s*you\s*obtain\b.*\bclearance\b/],
+  securityClearanceGranted: [/\bever\s*been\s*granted\s*a\s*(security\s*)?clearance\b/, /\b(currently\s*)?hold\s*(an?\s*)?(active\s*)?(security\s*)?clearance\b/, /\bdo\s*you\s*have\s*a\s*(security\s*)?clearance\b/],
+  consentBackgroundCheck: [/\bbackground\s*check\b/, /\bdrug\s*test\b/, /\bconsent\s*to\s*a\s*background\b/],
+  previouslyEmployedHere: [
+    /\bpreviously\s*(been\s*)?employed\b/, /\bformerly\s*employed\b/,
+    /\bworked\s*(for|at)\s*(this|the)\s*company\s*before\b/,
+    /\bemployed\s*(by|with)\s*(us|this\s*company)\s*(in\s*the\s*past|before)\b/,
+    /\bworked\s*here\s*before\b/
+  ],
 
   hispanicLatino: [/\bhispanic\b/, /\blatino\b/, /\blatinx\b/, /\blatina\b/],
   race: [/\brace\b/, /\bethnicity\b/, /\bracial\b/],
   veteranStatus: [/\bveteran\b/, /\bmilitary\s*status\b/, /\barmed\s*forces\b/],
   disabilityStatus: [/\bdisability\b/, /\bdisabled\b/, /\bdifferently\s*abled\b/],
   gender: [/\bgender\s*identity\b/, /\bgender\b/, /\bsex\b(?!ual)/],
+
+  referrerName: [
+    /\bname\s*of\s*the\s*employee\s*(that|who)\s*referred\b/, /\breferring\s*employee\b/,
+    /\breferrer.?s?\s*name\b/, /\bwho\s*referred\s*you\b/
+  ],
+  referredByEmployee: [/\breferred\s*by\s*a?\s*(current\s*)?employee\b/, /\bemployee\s*referral\b/, /\bwere\s*you\s*referred\b/],
+  travelPercentage: [/\bpercentage\s*of\s*travel\b/, /\btravel\s*percentage\b/, /\bhow\s*much\s*travel\b/],
+  willingToTravel: [/\bwilling\s*to\s*travel\b/, /\bable\s*to\s*travel\b/, /\btravel\s*required\b/],
+  validDriversLicense: [/\bdriver.?s?\s*licen[sc]e\b/],
+  preferredRegion: [/\bpreferred\s*(location|region)\b/],
 
   desiredSalary: [
     /\bdesired\s*salary\b/, /\bexpected\s*salary\b/, /\bsalary\s*expect/, /\bcompensation\s*expect/,
@@ -104,11 +138,13 @@ const FIELD_MATCH_ORDER = [
   "email", "phone",
   "addressZip", "addressState", "addressCity", "addressCountry", "addressStreet",
   "linkedin", "github", "portfolio",
-  "school", "gpaScale", "gpa", "major", "minor",
+  "school", "classStanding", "gpaScale", "gpa", "major", "minor",
   "graduationMonth", "graduationYear", "graduationDate", "degree",
   "currentlyWorking", "employer", "jobTitle", "workStartDate", "workEndDate", "workDescription",
   "usCitizen", "needsSponsorship", "workAuthorized", "over18", "felonyConviction", "nonCompete",
+  "clearanceLevel", "securityClearanceEligible", "securityClearanceGranted", "consentBackgroundCheck", "previouslyEmployedHere",
   "hispanicLatino", "race", "veteranStatus", "disabilityStatus", "gender",
+  "referrerName", "referredByEmployee", "travelPercentage", "willingToTravel", "validDriversLicense", "preferredRegion",
   "desiredSalary", "availableStartDate", "willingToRelocate", "remotePreference", "noticePeriod", "howHeard",
   "fullName"
 ];
@@ -126,6 +162,18 @@ const NEGATION_PATTERN = /\b(not|n't|never|without|decline|no\s)\b/;
 // never actually gave. Left for the applicant to answer by hand.
 const CONDITIONAL_FOLLOWUP_PATTERN = /\bif\s*(you\s*)?(responded|answered|selected|select)\b|\bi\s*responded\b|\bif\s*(yes|no|so|applicable)\b/;
 
+// A checkbox GROUP (multiple boxes sharing one name) whose question is
+// about which term(s)/semester(s) you're available for — e.g. "Which
+// term(s) are you interested in? [ ] Fall [ ] Spring [ ] Summer" — gets
+// every box checked, rather than guessing a single preferred term: when
+// both of these test true against the group's combined question text,
+// content.js checks all of that group's boxes.
+const TERM_AVAILABILITY_PATTERN = /\b(term|semester|session|quarter)s?\b/;
+const AVAILABILITY_CONTEXT_PATTERN = /\b(available|availability|interested|apply|prefer)\b/;
+
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { FIELD_RULES, FIELD_MATCH_ORDER, NEGATION_PATTERN, CONDITIONAL_FOLLOWUP_PATTERN };
+  module.exports = {
+    FIELD_RULES, FIELD_MATCH_ORDER, NEGATION_PATTERN, CONDITIONAL_FOLLOWUP_PATTERN,
+    TERM_AVAILABILITY_PATTERN, AVAILABILITY_CONTEXT_PATTERN
+  };
 }

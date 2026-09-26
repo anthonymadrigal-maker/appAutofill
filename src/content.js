@@ -327,29 +327,41 @@
   }
 
   function groupRadiosAndCheckboxes(elements) {
-    const groups = new Map();
+    const radioGroups = new Map();
+    const checkboxGroups = new Map();
     const singles = [];
     for (const el of elements) {
-      if (el.tagName === "INPUT" && (el.type === "radio")) {
+      if (el.tagName === "INPUT" && el.type === "radio") {
         const key = el.name || `__unnamed_${el.id}`;
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key).push(el);
+        if (!radioGroups.has(key)) radioGroups.set(key, []);
+        radioGroups.get(key).push(el);
+      } else if (el.tagName === "INPUT" && el.type === "checkbox" && el.name) {
+        if (!checkboxGroups.has(el.name)) checkboxGroups.set(el.name, []);
+        checkboxGroups.get(el.name).push(el);
       } else {
         singles.push(el);
       }
     }
-    return { groups, singles };
+    // A "group" of one is really just a standalone checkbox — put it back
+    // with the rest of singles instead of running group-only logic on it.
+    for (const [name, boxes] of Array.from(checkboxGroups.entries())) {
+      if (boxes.length < 2) {
+        singles.push(...boxes);
+        checkboxGroups.delete(name);
+      }
+    }
+    return { radioGroups, checkboxGroups, singles };
   }
 
   function runAutofill(profile) {
     injectHighlightStyle();
     const elements = getFillableElements();
-    const { groups, singles } = groupRadiosAndCheckboxes(elements);
+    const { radioGroups, checkboxGroups, singles } = groupRadiosAndCheckboxes(elements);
     let filledCount = 0;
     const matchedKeys = new Set();
 
     // Radio groups: match on the group's overall question text.
-    for (const radios of groups.values()) {
+    for (const radios of radioGroups.values()) {
       if (radios.length === 0) continue;
       const already = radios.some((r) => r.checked);
       if (already) continue;
@@ -362,6 +374,28 @@
       if (fillRadioGroup(radios, key, value)) {
         filledCount++;
         matchedKeys.add(key);
+      }
+    }
+
+    // Checkbox groups: currently only "which term(s) are you available for"
+    // style questions get special handling — check every box rather than
+    // guessing a single preferred term.
+    for (const boxes of checkboxGroups.values()) {
+      if (boxes.length === 0) continue;
+      const signal = getFieldSignal(boxes[0]) + " " + normalizeSignal(findNearbyQuestionText(boxes[0]));
+      if (CONDITIONAL_FOLLOWUP_PATTERN.test(signal)) continue;
+      if (!TERM_AVAILABILITY_PATTERN.test(signal) || !AVAILABILITY_CONTEXT_PATTERN.test(signal)) continue;
+      let toggled = 0;
+      for (const box of boxes) {
+        if (!box.checked) {
+          box.click();
+          toggled++;
+        }
+        markFilled(box);
+      }
+      if (toggled > 0) {
+        filledCount += toggled;
+        matchedKeys.add("termAvailability");
       }
     }
 

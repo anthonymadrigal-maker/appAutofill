@@ -1,8 +1,12 @@
 # Internship Autofill
 
 A Chrome extension that autofills internship / job application forms using a
-profile you fill in once: contact info, education, work history, work
-authorization, voluntary EEO questions, and preferences.
+profile you fill in once: contact info, education (including class
+standing/GPA/graduation date), work history, work authorization, security
+clearance and background-check questions, referral info, travel/driver's
+license/regional preference, voluntary EEO questions, and general
+preferences. Checkbox groups asking which term(s)/semester(s) you're
+available for get every box checked, rather than guessing one.
 
 ## Install (unpacked, for development)
 
