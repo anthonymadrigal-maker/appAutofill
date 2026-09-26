@@ -96,6 +96,7 @@ const PROFILE_SCHEMA = [
       { key: "felonyConviction", label: "Have you ever been convicted of a felony?", type: "yesno" },
       { key: "nonCompete", label: "Are you subject to a non-compete agreement?", type: "yesno" },
       { key: "previouslyEmployedHere", label: "Have you previously been employed by this company?", type: "yesno" },
+      { key: "governmentEmployee", label: "Are you currently a government employee, or have you been in the past (includes military service)?", type: "yesno" },
       { key: "consentBackgroundCheck", label: "Do you consent to a background check?", type: "yesno" },
       { key: "securityClearanceEligible", label: "Are you eligible to obtain a security clearance?", type: "yesno" },
       { key: "securityClearanceGranted", label: "Have you ever been granted a security clearance?", type: "yesno" },

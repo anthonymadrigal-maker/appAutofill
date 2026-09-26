@@ -33,7 +33,16 @@ const FIELD_RULES = {
   // apart in it) — those are a "preferred region" question, a separate
   // PROFILE_SCHEMA field, not this address field, even though both
   // mention the word "region".
-  addressState: [/\bstate\b/, /\bprovince\b/, /^(?!.*\bprefer(red)?\b).*\bregion\b(?!.*(country|world))/],
+  // The lookahead on "state" excludes legal/compliance phrasing like "any
+  // state, local, or international agency" (common in felony/debarment
+  // questions), which would otherwise outrank those more specific keys —
+  // addressState sits very early in FIELD_MATCH_ORDER since it's a common
+  // field, so a bare "state" match here wins before those ever get tried.
+  addressState: [
+    /\bstate\b(?!.*(local|agency|government|international))/,
+    /\bprovince\b/,
+    /^(?!.*\bprefer(red)?\b).*\bregion\b(?!.*(country|world))/
+  ],
   addressCity: [/\bcity\b/, /\btown\b/],
   addressCountry: [/\bcountry\b/, /\bnation(ality)?\b/],
   addressStreet: [/\baddress\s*line\s*1\b/, /\bstreet\s*address\b/, /\bmailing\s*address\b/, /\bstreet\b/, /\baddress\b/],
@@ -98,6 +107,11 @@ const FIELD_RULES = {
     /\bemployed\s*(by|with)\s*(us|this\s*company)\s*(in\s*the\s*past|before)\b/,
     /\bworked\s*here\s*before\b/
   ],
+  governmentEmployee: [
+    /\bgovernment\s*employee\b/, /\bemployed\s*by\s*(a\s*|the\s*)?government\b/,
+    /\bworked\s*for\s*(a\s*)?government\s*(entity|agency)?\b/,
+    /\bgovernment\s*entity\s*currently\s*or\s*in\s*the\s*past\b/
+  ],
 
   hispanicLatino: [/\bhispanic\b/, /\blatino\b/, /\blatinx\b/, /\blatina\b/],
   race: [/\brace\b/, /\bethnicity\b/, /\bracial\b/],
@@ -142,7 +156,7 @@ const FIELD_MATCH_ORDER = [
   "graduationMonth", "graduationYear", "graduationDate", "degree",
   "currentlyWorking", "employer", "jobTitle", "workStartDate", "workEndDate", "workDescription",
   "usCitizen", "needsSponsorship", "workAuthorized", "over18", "felonyConviction", "nonCompete",
-  "clearanceLevel", "securityClearanceEligible", "securityClearanceGranted", "consentBackgroundCheck", "previouslyEmployedHere",
+  "clearanceLevel", "securityClearanceEligible", "securityClearanceGranted", "consentBackgroundCheck", "previouslyEmployedHere", "governmentEmployee",
   "hispanicLatino", "race", "veteranStatus", "disabilityStatus", "gender",
   "referrerName", "referredByEmployee", "travelPercentage", "willingToTravel", "validDriversLicense", "preferredRegion",
   "desiredSalary", "availableStartDate", "willingToRelocate", "remotePreference", "noticePeriod", "howHeard",
