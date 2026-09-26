@@ -317,6 +317,10 @@
     return all.filter((el) => {
       if (el.disabled || el.readOnly) return false;
       if (el.tagName === "INPUT" && EXCLUDED_INPUT_TYPES.has((el.type || "text").toLowerCase())) return false;
+      // role="combobox" inputs (e.g. a searchable school picker) are driven
+      // by clicking a result out of a popup list, not by just typing text
+      // into the box — handled separately by fillCustomComboboxes().
+      if (el.tagName === "INPUT" && el.getAttribute("role") === "combobox") return false;
       if (el.offsetParent === null) {
         // offsetParent is null both for display:none/detached elements and
         // for position:fixed ones; getClientRects tells them apart.
@@ -439,6 +443,7 @@
     }
 
     scheduleSelectRetries(pendingSelects);
+    fillCustomWidgets(profile);
 
     return { filledCount, matchedKeys: Array.from(matchedKeys) };
   }
@@ -467,6 +472,155 @@
       }
     };
     setTimeout(tryNow, SELECT_RETRY_DELAYS_MS[0]);
+  }
+
+  // ---------- custom (non-native) dropdown widgets ----------
+  //
+  // Some ATS platforms (SAP SuccessFactors/Fiori in particular) don't use a
+  // native <select> at all — the visible "dropdown" is a clickable trigger
+  // (role="button", commonly classed fd-select__control) that, on click,
+  // renders a popup list elsewhere in the DOM (role="listbox" of
+  // role="option" items, often appended near <body> rather than nested
+  // inside the control). A related "searchable" variant pairs a real
+  // <input role="combobox"> with a button that opens that same kind of
+  // popup, filtered by whatever you type into the input — used for things
+  // like a long school list.
+  //
+  // These need actual simulated interaction — click to open, wait for the
+  // popup to render, click the matching option — rather than a direct DOM
+  // value write. This is built around ARIA roles (role="button",
+  // role="listbox", role="option", role="combobox") plus the concrete
+  // class name observed (fd-select__control) to generalize as far as
+  // reasonably possible; exact markup and popup timing still vary by site,
+  // so treat this as best-effort and expect it may need tuning per ATS.
+
+  const CUSTOM_TRIGGER_SELECTOR = '.fd-select__control, a[role="button"][aria-haspopup], button[aria-haspopup="listbox"]';
+  const OPTION_SELECTOR = '[role="option"], li';
+  const LISTBOX_SELECTOR = '[role="listbox"]';
+  const CUSTOM_WIDGET_OPEN_TIMEOUT_MS = 1500;
+
+  function waitFor(predicate, timeoutMs, intervalMs = 100) {
+    return new Promise((resolve) => {
+      const start = Date.now();
+      (function poll() {
+        let result;
+        try {
+          result = predicate();
+        } catch {
+          result = null;
+        }
+        if (result) return resolve(result);
+        if (Date.now() - start >= timeoutMs) return resolve(null);
+        setTimeout(poll, intervalMs);
+      })();
+    });
+  }
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  function isVisible(el) {
+    if (!el) return false;
+    if (el.hasAttribute("hidden")) return false;
+    const view = el.ownerDocument.defaultView;
+    const style = view && view.getComputedStyle ? view.getComputedStyle(el) : null;
+    if (style && (style.display === "none" || style.visibility === "hidden")) return false;
+    return el.getClientRects().length > 0;
+  }
+
+  function findVisibleListbox(knownListboxes) {
+    const all = Array.from(document.querySelectorAll(LISTBOX_SELECTOR));
+    const fresh = all.find((box) => !knownListboxes.has(box) && isVisible(box));
+    if (fresh) return fresh;
+    // Some widgets keep one listbox element in the DOM at all times and
+    // just toggle its visibility, so also accept an already-known one that
+    // has since become visible.
+    return all.find(isVisible) || null;
+  }
+
+  function pickBestOption(options, targetText) {
+    let best = null;
+    let bestScore = 0;
+    for (const opt of options) {
+      const score = scoreOptionMatch(opt.textContent, targetText);
+      if (score > bestScore) {
+        bestScore = score;
+        best = opt;
+      }
+    }
+    return bestScore >= 40 ? best : null;
+  }
+
+  async function fillCustomTrigger(trigger, value) {
+    const knownListboxes = new Set(document.querySelectorAll(LISTBOX_SELECTOR));
+    const wasOpen = trigger.getAttribute("aria-expanded") === "true";
+    if (!wasOpen) trigger.click();
+
+    const listbox = await waitFor(() => findVisibleListbox(knownListboxes), CUSTOM_WIDGET_OPEN_TIMEOUT_MS);
+    if (!listbox) return false;
+
+    const best = pickBestOption(listbox.querySelectorAll(OPTION_SELECTOR), value);
+    if (best) {
+      best.click();
+      markFilled(trigger);
+      return true;
+    }
+    if (!wasOpen) trigger.click(); // nothing matched — close it back up
+    return false;
+  }
+
+  async function fillPaginatedCombobox(inputEl, value) {
+    const knownListboxes = new Set(document.querySelectorAll(LISTBOX_SELECTOR));
+    const container = inputEl.closest('[class*="input-group" i]') || inputEl.parentElement;
+    const openButton = container && container.querySelector("button");
+    (openButton || inputEl).click();
+
+    setNativeValue(inputEl, value);
+    inputEl.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
+
+    const listbox = await waitFor(() => findVisibleListbox(knownListboxes), CUSTOM_WIDGET_OPEN_TIMEOUT_MS);
+    if (!listbox) return false;
+    await sleep(400); // let the widget's own search/filter settle before reading its results
+
+    const best = pickBestOption(listbox.querySelectorAll(OPTION_SELECTOR), value);
+    if (best) {
+      best.click();
+      markFilled(inputEl);
+      return true;
+    }
+    return false;
+  }
+
+  // Runs after the synchronous pass, one widget at a time (opening two of
+  // these popups at once would be unreliable) — fire-and-forget from
+  // runAutofill's point of view, same as scheduleSelectRetries.
+  async function fillCustomWidgets(profile) {
+    const triggers = Array.from(document.querySelectorAll(CUSTOM_TRIGGER_SELECTOR));
+    for (const trigger of triggers) {
+      if (!isVisible(trigger)) continue;
+      const signal = getFieldSignal(trigger) + " " + normalizeSignal(findNearbyQuestionText(trigger));
+      if (CONDITIONAL_FOLLOWUP_PATTERN.test(signal)) continue;
+      const key = matchKeyForSignal(signal);
+      if (!key) continue;
+      const value = resolveValue(key, profile);
+      if (value === undefined || value === null || value === "") continue;
+      await fillCustomTrigger(trigger, value);
+      await sleep(150);
+    }
+
+    const comboboxInputs = Array.from(document.querySelectorAll('input[role="combobox"]'));
+    for (const inputEl of comboboxInputs) {
+      if (!isVisible(inputEl) || inputEl.value) continue;
+      const signal = getFieldSignal(inputEl) + " " + normalizeSignal(findNearbyQuestionText(inputEl));
+      if (CONDITIONAL_FOLLOWUP_PATTERN.test(signal)) continue;
+      const key = matchKeyForSignal(signal);
+      if (!key) continue;
+      const value = resolveValue(key, profile);
+      if (value === undefined || value === null || value === "") continue;
+      await fillPaginatedCombobox(inputEl, value);
+      await sleep(150);
+    }
   }
 
   function loadProfileAndFill(sendResponse) {
