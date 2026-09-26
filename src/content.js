@@ -85,7 +85,9 @@
       let sibling = node.previousElementSibling;
       let hops = 0;
       while (sibling && hops < 2) {
-        const containsControl = !!sibling.querySelector("input, select, textarea");
+        const containsControl = !!sibling.querySelector(
+          'input, select, textarea, [role="radio"], [role="checkbox"], [role="option"], [role="combobox"]'
+        );
         if (HEADING_TAG_RE.test(sibling.tagName) && !containsControl) {
           const t = textOf(sibling).trim();
           if (t && t.length < 200) return t;
@@ -122,7 +124,10 @@
   function getOwnOptionLabel(el) {
     // For a single radio/checkbox within a group, the text of *this*
     // specific option (e.g. "Yes" vs the group question "Are you...?").
-    const own = findAssociatedLabel(el) || el.getAttribute("aria-label") || el.value || "";
+    // aria-labelledby matters here specifically for custom ARIA radio
+    // widgets (e.g. SAP Fiori's span[role="radio"]) that reference a
+    // sibling <label> by id rather than wrapping it or using aria-label.
+    const own = findAssociatedLabel(el) || resolveLabelledBy(el) || el.getAttribute("aria-label") || el.value || "";
     return normalizeSignal(own);
   }
 
@@ -313,6 +318,52 @@
     return filled;
   }
 
+  // Same logic as fillRadioGroup, but for custom ARIA radio widgets (no
+  // native <input type="radio">, so no .checked property to read/set —
+  // toggled state lives in the aria-checked attribute instead, and .click()
+  // is left to the widget's own JS to update it).
+  function fillAriaRadioGroup(radios, key, profile) {
+    const isChecked = (r) => r.getAttribute("aria-checked") === "true";
+    const fieldDef = KEY_TO_FIELD_DEF[key];
+    let filled = false;
+    if (fieldDef && fieldDef.type === "yesno") {
+      const profileValue = resolveValue(key, profile);
+      const wantYes = /^yes$/i.test(profileValue);
+      const wantNo = /^no$/i.test(profileValue);
+      if (!wantYes && !wantNo) return false;
+      for (const radio of radios) {
+        const label = getOwnOptionLabel(radio);
+        const isYes = YES_WORDS.test(label) && !NO_WORDS.test(label);
+        const isNo = NO_WORDS.test(label);
+        if ((wantYes && isYes) || (wantNo && isNo && !isYes)) {
+          if (!isChecked(radio)) radio.click();
+          markFilled(radio);
+          filled = true;
+          break;
+        }
+      }
+    } else {
+      const optionTexts = radios.map((r) => getOwnOptionLabel(r));
+      const targetText = getEffectiveValue(key, profile, optionTexts);
+      if (!targetText) return false;
+      let best = null;
+      let bestScore = 0;
+      for (const radio of radios) {
+        const score = scoreOptionMatch(getOwnOptionLabel(radio), targetText);
+        if (score > bestScore) {
+          bestScore = score;
+          best = radio;
+        }
+      }
+      if (best && bestScore >= 40) {
+        if (!isChecked(best)) best.click();
+        markFilled(best);
+        filled = true;
+      }
+    }
+    return filled;
+  }
+
   function fillSingleCheckbox(el, key, profileValue) {
     const fieldDef = KEY_TO_FIELD_DEF[key];
     if (!fieldDef || fieldDef.type !== "yesno") return false;
@@ -414,6 +465,34 @@
       if (fillRadioGroup(radios, key, profile)) {
         filledCount++;
         matchedKeys.add(key);
+      }
+    }
+
+    // ARIA-role radio groups: custom widgets (no native <input
+    // type="radio"> at all — e.g. SAP Fiori's span[role="radio"]) have no
+    // shared `name` attribute to group by, so they're grouped instead by
+    // whichever nearby question text they resolve to being right next to.
+    const ariaRadios = Array.from(document.querySelectorAll('[role="radio"]')).filter(isVisible);
+    if (ariaRadios.length > 0) {
+      const ariaGroups = new Map();
+      for (const radio of ariaRadios) {
+        const groupKey = normalizeSignal(findNearbyQuestionText(radio));
+        if (!groupKey) continue; // can't safely group without a distinguishing question
+        if (!ariaGroups.has(groupKey)) ariaGroups.set(groupKey, []);
+        ariaGroups.get(groupKey).push(radio);
+      }
+      for (const radios of ariaGroups.values()) {
+        if (radios.length < 2) continue;
+        if (radios.some((r) => r.getAttribute("aria-checked") === "true")) continue;
+        const signal = getFieldSignal(radios[0]) + " " + normalizeSignal(findNearbyQuestionText(radios[0]));
+        if (CONDITIONAL_FOLLOWUP_PATTERN.test(signal)) continue;
+        const key = matchKeyForSignal(signal);
+        if (!key) continue;
+        if (!keyHasFillableValue(key, profile)) continue;
+        if (fillAriaRadioGroup(radios, key, profile)) {
+          filledCount++;
+          matchedKeys.add(key);
+        }
       }
     }
 
