@@ -359,6 +359,7 @@
     const { radioGroups, checkboxGroups, singles } = groupRadiosAndCheckboxes(elements);
     let filledCount = 0;
     const matchedKeys = new Set();
+    const pendingSelects = [];
 
     // Radio groups: match on the group's overall question text.
     for (const radios of radioGroups.values()) {
@@ -411,7 +412,16 @@
 
       let didFill = false;
       if (el.tagName === "SELECT") {
-        didFill = fillSelect(el, value);
+        if (el.options.length > 1) {
+          didFill = fillSelect(el, value);
+        } else {
+          // Only the placeholder option exists so far — many ATS platforms
+          // (Taleo in particular) populate big reference-data dropdowns
+          // (school lists, EEO categories, clearance levels) via a
+          // background request that finishes after the page first renders.
+          // Retry this one for a few seconds instead of giving up.
+          pendingSelects.push({ el, value });
+        }
       } else if (el.tagName === "INPUT" && el.type === "checkbox") {
         didFill = fillSingleCheckbox(el, key, value);
       } else if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") {
@@ -428,7 +438,35 @@
       }
     }
 
+    scheduleSelectRetries(pendingSelects);
+
     return { filledCount, matchedKeys: Array.from(matchedKeys) };
+  }
+
+  const SELECT_RETRY_DELAYS_MS = [800, 1800, 3500, 6000];
+
+  // Re-attempts <select> elements that had no real options yet at scan
+  // time. Runs after runAutofill has already returned its response to the
+  // popup, so a field filled this way only gets the visual highlight, not
+  // an updated "Filled N fields" count — that's fine, the point is just
+  // getting the value in before you submit.
+  function scheduleSelectRetries(pending) {
+    if (pending.length === 0) return;
+    let attempt = 0;
+    const tryNow = () => {
+      const stillPending = [];
+      for (const { el, value } of pending) {
+        if (!document.isConnected || !document.contains(el)) continue;
+        if (el.options.length > 1 && fillSelect(el, value)) continue;
+        stillPending.push({ el, value });
+      }
+      pending = stillPending;
+      attempt++;
+      if (pending.length > 0 && attempt < SELECT_RETRY_DELAYS_MS.length) {
+        setTimeout(tryNow, SELECT_RETRY_DELAYS_MS[attempt]);
+      }
+    };
+    setTimeout(tryNow, SELECT_RETRY_DELAYS_MS[0]);
   }
 
   function loadProfileAndFill(sendResponse) {
