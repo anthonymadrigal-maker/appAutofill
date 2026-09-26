@@ -183,6 +183,21 @@
     september: "Fall", october: "Fall", november: "Fall", december: "Fall"
   };
   const SEASON_WORD_PATTERN = /\b(spring|summer|fall|winter)\b/i;
+  // Cyclic order used to find "the next term after you actually graduate"
+  // when your exact term isn't offered (e.g. a program that only runs
+  // Winter/Spring cohorts, for a December/Fall grad) — Winter follows Fall.
+  const SEASON_CYCLE = ["Winter", "Spring", "Summer", "Fall"];
+
+  function findClosestSeasonOption(targetSeason, optionTexts) {
+    const startIdx = SEASON_CYCLE.indexOf(targetSeason);
+    if (startIdx === -1) return null;
+    for (let step = 0; step < SEASON_CYCLE.length; step++) {
+      const season = SEASON_CYCLE[(startIdx + step) % SEASON_CYCLE.length];
+      const match = optionTexts.find((t) => new RegExp(`\\b${season}\\b`, "i").test(t));
+      if (match) return match; // the real rendered option text — guarantees an exact-match pick
+    }
+    return null;
+  }
 
   function getEffectiveValue(key, profile, optionTexts) {
     if (key === "race" && (profile.hispanicLatino || "").trim().toLowerCase() === "yes" && optionTexts) {
@@ -194,9 +209,13 @@
       // literal months — a stored month like "December" shares no words
       // with any of those options, so plain fuzzy matching just picks
       // whichever season happens to score/tie-break first. Translate the
-      // stored month to its term instead.
+      // stored month to its term instead, falling forward to the next
+      // available term if the exact one isn't offered at all.
       const season = SEASON_BY_MONTH[(profile.graduationMonth || "").trim().toLowerCase()];
-      if (season) return `${season} ${profile.graduationYear || ""}`.trim();
+      if (season) {
+        const closest = findClosestSeasonOption(season, optionTexts);
+        if (closest) return closest;
+      }
     }
     return resolveValue(key, profile);
   }
