@@ -687,29 +687,67 @@
 
   async function fillPaginatedCombobox(inputEl, key, profile) {
     const knownListboxes = new Set(document.querySelectorAll(LISTBOX_SELECTOR));
-    const container = inputEl.closest('[class*="input-group" i]') || inputEl.parentElement;
-    const openButton = container && container.querySelector("button");
+    // Start the search at the parent, not inputEl itself — the input's own
+    // class often *also* contains "input-group" as a substring (e.g.
+    // "fd-input-group__input"), which made closest() match the input
+    // itself and then look for a <button> *inside* it (impossible), always
+    // coming up empty.
+    const container = inputEl.parentElement && inputEl.parentElement.closest('[class*="input-group" i]');
+    const openButton = (container || inputEl.parentElement) && (container || inputEl.parentElement).querySelector("button");
     (openButton || inputEl).click();
 
-    // A search-as-you-type combobox doesn't have a meaningful option list
-    // until something's typed, so it can't offer the race/ethnicity
-    // override the same way — just resolve the plain profile value.
-    const value = resolveValue(key, profile);
-    if (!value) return false;
-    setNativeValue(inputEl, value);
-    inputEl.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
+    // Not every one of these widgets actually requires typing a search
+    // query — a short, fixed list (Veteran Status, Race, Gender) is likely
+    // to show all of its options as soon as it's opened. Try matching
+    // against whatever's already visible first: typing a full stored
+    // sentence like "I am not a protected veteran" into a box that expects
+    // a short query term (or none at all) can return zero server-side
+    // results, leaving that raw text sitting rejected in the box instead
+    // of ever selecting anything. Only fall back to typing if nothing
+    // matched what was already there — that's what a long searchable list
+    // (e.g. a school picker) actually needs.
+    let best = await tryMatchVisibleListbox(knownListboxes, key, profile);
 
-    const listbox = await waitFor(() => findVisibleListbox(knownListboxes), CUSTOM_WIDGET_OPEN_TIMEOUT_MS);
-    if (!listbox) return false;
-    await sleep(400); // let the widget's own search/filter settle before reading its results
+    if (!best) {
+      const queryValue = getComboboxQuery(key, profile);
+      if (!queryValue) return false;
+      setNativeValue(inputEl, queryValue);
+      inputEl.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
 
-    const best = pickBestOption(listbox.querySelectorAll(OPTION_SELECTOR), value);
-    if (best) {
-      best.click();
-      markFilled(inputEl);
-      return true;
+      const listbox = await waitFor(() => findVisibleListbox(knownListboxes), CUSTOM_WIDGET_OPEN_TIMEOUT_MS);
+      if (listbox) {
+        await sleep(400); // let the widget's own search/filter settle before reading its results
+        const options = listbox.querySelectorAll(OPTION_SELECTOR);
+        const targetText = getEffectiveValue(key, profile, Array.from(options).map((o) => o.textContent)) || queryValue;
+        best = pickBestOption(options, targetText);
+      }
+      if (!best) {
+        if (inputEl.value) setNativeValue(inputEl, ""); // don't leave rejected free text sitting there
+        return false;
+      }
     }
-    return false;
+
+    best.click();
+    markFilled(inputEl);
+    return true;
+  }
+
+  // A short query term is far more likely to actually match a search-driven
+  // widget's server-side lookup than a full stored sentence would — used
+  // only as the typed fallback when nothing was already visible on open.
+  function getComboboxQuery(key, profile) {
+    if (key === "race" && (profile.hispanicLatino || "").trim().toLowerCase() === "yes") {
+      return "Hispanic";
+    }
+    return resolveValue(key, profile);
+  }
+
+  async function tryMatchVisibleListbox(knownListboxes, key, profile) {
+    const listbox = await waitFor(() => findVisibleListbox(knownListboxes), 700);
+    if (!listbox) return null;
+    const options = listbox.querySelectorAll(OPTION_SELECTOR);
+    const targetText = getEffectiveValue(key, profile, Array.from(options).map((o) => o.textContent));
+    return targetText ? pickBestOption(options, targetText) : null;
   }
 
   // Runs after the synchronous pass, one widget at a time (opening two of
