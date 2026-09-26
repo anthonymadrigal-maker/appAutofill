@@ -152,6 +152,35 @@
     return profile[key];
   }
 
+  const HISPANIC_OPTION_PATTERN = /hispanic|latino|latina|latinx/i;
+
+  // Some ATS platforms fold ethnicity into the same single-choice list as
+  // race (e.g. "White", "Hispanic or Latino", "Black or African American",
+  // ... as one mutually-exclusive control) instead of asking them as two
+  // separate questions the way PROFILE_SCHEMA does. When that combined list
+  // is what we're actually filling, and the applicant identifies as
+  // Hispanic/Latino, that option is preferred over whatever plain race
+  // value is stored — matches instruction, and is also the more complete/
+  // correct answer on a form that only allows picking one.
+  function getEffectiveValue(key, profile, optionTexts) {
+    if (key === "race" && (profile.hispanicLatino || "").trim().toLowerCase() === "yes" && optionTexts) {
+      const hispanicOption = optionTexts.find((t) => HISPANIC_OPTION_PATTERN.test(t));
+      if (hispanicOption) return hispanicOption;
+    }
+    return resolveValue(key, profile);
+  }
+
+  // Whether there's anything worth attempting to fill for this key, before
+  // we necessarily know the control's option list yet (used for the cheap
+  // early-exit checks) — mirrors getEffectiveValue's race special case so a
+  // combined race/ethnicity dropdown isn't skipped just because plain
+  // profile.race happens to be blank.
+  function keyHasFillableValue(key, profile) {
+    if (key === "race" && (profile.hispanicLatino || "").trim().toLowerCase() === "yes") return true;
+    const v = resolveValue(key, profile);
+    return v !== undefined && v !== null && v !== "";
+  }
+
   const MONTH_NUM = {
     january: "01", february: "02", march: "03", april: "04", may: "05", june: "06",
     july: "07", august: "08", september: "09", october: "10", november: "11", december: "12"
@@ -214,8 +243,11 @@
     return shared > 0 ? 40 + shared * 5 : 0;
   }
 
-  function fillSelect(el, targetText) {
+  function fillSelect(el, key, profile) {
     if (el.value && el.selectedIndex > 0 && el.options[el.selectedIndex]?.value !== "") return false;
+    const optionTexts = Array.from(el.options).map((o) => o.textContent);
+    const targetText = getEffectiveValue(key, profile, optionTexts);
+    if (!targetText) return false;
     let best = null;
     let bestScore = 0;
     for (const opt of el.options) {
@@ -239,10 +271,11 @@
   const YES_WORDS = /\b(yes|true|agree|i\s*am|i\s*do)\b/;
   const NO_WORDS = /\b(no|not|false|disagree|never|none)\b/;
 
-  function fillRadioGroup(radios, key, profileValue) {
+  function fillRadioGroup(radios, key, profile) {
     const fieldDef = KEY_TO_FIELD_DEF[key];
     let filled = false;
     if (fieldDef && fieldDef.type === "yesno") {
+      const profileValue = resolveValue(key, profile);
       const wantYes = /^yes$/i.test(profileValue);
       const wantNo = /^no$/i.test(profileValue);
       if (!wantYes && !wantNo) return false;
@@ -258,11 +291,14 @@
         }
       }
     } else {
+      const optionTexts = radios.map((r) => getOwnOptionLabel(r) || r.value);
+      const targetText = getEffectiveValue(key, profile, optionTexts);
+      if (!targetText) return false;
       let best = null;
       let bestScore = 0;
       for (const radio of radios) {
         const label = getOwnOptionLabel(radio) || radio.value;
-        const score = scoreOptionMatch(label, profileValue);
+        const score = scoreOptionMatch(label, targetText);
         if (score > bestScore) {
           bestScore = score;
           best = radio;
@@ -374,9 +410,8 @@
       if (CONDITIONAL_FOLLOWUP_PATTERN.test(signal)) continue;
       const key = matchKeyForSignal(signal);
       if (!key) continue;
-      const value = resolveValue(key, profile);
-      if (value === undefined || value === null || value === "") continue;
-      if (fillRadioGroup(radios, key, value)) {
+      if (!keyHasFillableValue(key, profile)) continue;
+      if (fillRadioGroup(radios, key, profile)) {
         filledCount++;
         matchedKeys.add(key);
       }
@@ -411,29 +446,28 @@
       if (CONDITIONAL_FOLLOWUP_PATTERN.test(signal)) continue;
       const key = matchKeyForSignal(signal);
       if (!key) continue;
-      const value = resolveValue(key, profile);
-      if (value === undefined || value === null || value === "") continue;
+      if (!keyHasFillableValue(key, profile)) continue;
 
       let didFill = false;
       if (el.tagName === "SELECT") {
         if (el.options.length > 1) {
-          didFill = fillSelect(el, value);
+          didFill = fillSelect(el, key, profile);
         } else {
           // Only the placeholder option exists so far — many ATS platforms
           // (Taleo in particular) populate big reference-data dropdowns
           // (school lists, EEO categories, clearance levels) via a
           // background request that finishes after the page first renders.
           // Retry this one for a few seconds instead of giving up.
-          pendingSelects.push({ el, value });
+          pendingSelects.push({ el, key });
         }
       } else if (el.tagName === "INPUT" && el.type === "checkbox") {
-        didFill = fillSingleCheckbox(el, key, value);
+        didFill = fillSingleCheckbox(el, key, resolveValue(key, profile));
       } else if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") {
         const dateVal = formatForDateInput(el, key, profile);
         if (dateVal !== undefined) {
           if (dateVal !== null) didFill = fillTextLike(el, dateVal);
         } else {
-          didFill = fillTextLike(el, value);
+          didFill = fillTextLike(el, resolveValue(key, profile));
         }
       }
       if (didFill) {
@@ -442,7 +476,7 @@
       }
     }
 
-    scheduleSelectRetries(pendingSelects);
+    scheduleSelectRetries(pendingSelects, profile);
     fillCustomWidgets(profile);
 
     return { filledCount, matchedKeys: Array.from(matchedKeys) };
@@ -455,15 +489,15 @@
   // popup, so a field filled this way only gets the visual highlight, not
   // an updated "Filled N fields" count — that's fine, the point is just
   // getting the value in before you submit.
-  function scheduleSelectRetries(pending) {
+  function scheduleSelectRetries(pending, profile) {
     if (pending.length === 0) return;
     let attempt = 0;
     const tryNow = () => {
       const stillPending = [];
-      for (const { el, value } of pending) {
+      for (const { el, key } of pending) {
         if (!document.isConnected || !document.contains(el)) continue;
-        if (el.options.length > 1 && fillSelect(el, value)) continue;
-        stillPending.push({ el, value });
+        if (el.options.length > 1 && fillSelect(el, key, profile)) continue;
+        stillPending.push({ el, key });
       }
       pending = stillPending;
       attempt++;
@@ -552,7 +586,7 @@
     return bestScore >= 40 ? best : null;
   }
 
-  async function fillCustomTrigger(trigger, value) {
+  async function fillCustomTrigger(trigger, key, profile) {
     const knownListboxes = new Set(document.querySelectorAll(LISTBOX_SELECTOR));
     const wasOpen = trigger.getAttribute("aria-expanded") === "true";
     if (!wasOpen) trigger.click();
@@ -560,7 +594,9 @@
     const listbox = await waitFor(() => findVisibleListbox(knownListboxes), CUSTOM_WIDGET_OPEN_TIMEOUT_MS);
     if (!listbox) return false;
 
-    const best = pickBestOption(listbox.querySelectorAll(OPTION_SELECTOR), value);
+    const options = listbox.querySelectorAll(OPTION_SELECTOR);
+    const targetText = getEffectiveValue(key, profile, Array.from(options).map((o) => o.textContent));
+    const best = targetText ? pickBestOption(options, targetText) : null;
     if (best) {
       best.click();
       markFilled(trigger);
@@ -570,12 +606,17 @@
     return false;
   }
 
-  async function fillPaginatedCombobox(inputEl, value) {
+  async function fillPaginatedCombobox(inputEl, key, profile) {
     const knownListboxes = new Set(document.querySelectorAll(LISTBOX_SELECTOR));
     const container = inputEl.closest('[class*="input-group" i]') || inputEl.parentElement;
     const openButton = container && container.querySelector("button");
     (openButton || inputEl).click();
 
+    // A search-as-you-type combobox doesn't have a meaningful option list
+    // until something's typed, so it can't offer the race/ethnicity
+    // override the same way — just resolve the plain profile value.
+    const value = resolveValue(key, profile);
+    if (!value) return false;
     setNativeValue(inputEl, value);
     inputEl.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
 
@@ -603,9 +644,8 @@
       if (CONDITIONAL_FOLLOWUP_PATTERN.test(signal)) continue;
       const key = matchKeyForSignal(signal);
       if (!key) continue;
-      const value = resolveValue(key, profile);
-      if (value === undefined || value === null || value === "") continue;
-      await fillCustomTrigger(trigger, value);
+      if (!keyHasFillableValue(key, profile)) continue;
+      await fillCustomTrigger(trigger, key, profile);
       await sleep(150);
     }
 
@@ -616,9 +656,8 @@
       if (CONDITIONAL_FOLLOWUP_PATTERN.test(signal)) continue;
       const key = matchKeyForSignal(signal);
       if (!key) continue;
-      const value = resolveValue(key, profile);
-      if (value === undefined || value === null || value === "") continue;
-      await fillPaginatedCombobox(inputEl, value);
+      if (!keyHasFillableValue(key, profile)) continue;
+      await fillPaginatedCombobox(inputEl, key, profile);
       await sleep(150);
     }
   }
