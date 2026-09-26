@@ -293,6 +293,68 @@
     return shared > 0 ? 40 + shared * 5 : 0;
   }
 
+  // Sensitive identity/voluntary-disclosure fields (race/ethnicity, gender,
+  // hispanicLatino) must never be filled from a merely-plausible
+  // word-overlap match. These keys require containment-level confidence
+  // (70+ — the option and the stored answer actually contain one another)
+  // or the field is left blank rather than risk a wrong disclosure.
+  const STRICT_MATCH_KEYS = new Set(["race", "hispanicLatino", "gender"]);
+  function matchThreshold(key) {
+    return STRICT_MATCH_KEYS.has(key) ? 70 : 40;
+  }
+
+  // veteranStatus / disabilityStatus render as a small set of options whose
+  // wording varies a lot between sites (our own canonical "I am not a
+  // protected veteran" vs. a site's "Not Protected Veteran (OFCCP)" —
+  // legitimately correct, but too little word overlap to hit 70). Raising
+  // the bar to containment would leave those blank too. But plain
+  // word-overlap can't tell "differently worded, same meaning" apart from
+  // "differently worded, opposite meaning" — confirmed on a real site: "I
+  // am not a protected veteran" scored higher, by shared words alone,
+  // against the wrong option "I identify as a veteran, just not a
+  // protected veteran" than the shared-word count alone would suggest,
+  // despite that option asserting the applicant DOES identify as a
+  // veteran. So these two keys get a cheap polarity check first — does the
+  // option affirm or deny the underlying condition — and any option whose
+  // polarity contradicts the stored answer's is rejected outright, before
+  // word-overlap scoring ever runs.
+  const POLARITY_GATED_KEYS = new Set(["veteranStatus", "disabilityStatus"]);
+
+  // Both sensitive-field safeguards above (containment-only matching and
+  // polarity gating) can be defeated the same way: an option's raw HTML
+  // `value` attribute is often a short code ("a", "1", "true") that's a
+  // trivial substring of practically any long targetText sentence, scoring
+  // a meaningless 70 with no determinable polarity to gate on either. So
+  // no sensitive key is ever matched against opt.value — only its visible
+  // text — regardless of which of the two safeguards applies to it.
+  const NO_VALUE_MATCH_KEYS = new Set([...STRICT_MATCH_KEYS, ...POLARITY_GATED_KEYS]);
+
+  const DECLINE_POLARITY_PATTERN = /\bdon.?t\s+wish\b|\bdecline\b|\bprefer\s+not\s+to\s+answer\b/;
+  const AFFIRMATIVE_POLARITY_PATTERN = /\bidentify\s+as\b|\bhave\s+a\s+disability\b|^yes\b/;
+  const NEGATIVE_POLARITY_PATTERN = /\bnot\s+a\b|\bnot\s+protected\b|^no\b|\bdo\s+not\s+have\b|\bdo\s+not\s+identify\b/;
+
+  function identityPolarity(text) {
+    const t = normalizeSignal(text);
+    if (!t) return null;
+    if (DECLINE_POLARITY_PATTERN.test(t)) return "decline";
+    // Checked before "negative": an affirmative self-identification
+    // ("I identify as a veteran, just not a protected veteran") should
+    // read as affirmative even though it also contains a later "not"
+    // qualifier — the leading claim is the one that matters.
+    if (AFFIRMATIVE_POLARITY_PATTERN.test(t)) return "affirmative";
+    if (NEGATIVE_POLARITY_PATTERN.test(t)) return "negative";
+    return null;
+  }
+
+  function scoreOptionMatchForKey(optionText, targetText, key) {
+    if (POLARITY_GATED_KEYS.has(key)) {
+      const targetPolarity = identityPolarity(targetText);
+      const optionPolarity = identityPolarity(optionText);
+      if (targetPolarity && optionPolarity && targetPolarity !== optionPolarity) return 0;
+    }
+    return scoreOptionMatch(optionText, targetText);
+  }
+
   function fillSelect(el, key, profile) {
     if (el.value && el.selectedIndex > 0 && el.options[el.selectedIndex]?.value !== "") return false;
     const optionTexts = Array.from(el.options).map((o) => o.textContent);
@@ -300,17 +362,24 @@
     if (!targetText) return false;
     let best = null;
     let bestScore = 0;
+    // Sensitive keys skip opt.value: a short HTML value attribute (e.g.
+    // "a", "1") is trivially a substring of any long targetText sentence,
+    // scoring a meaningless containment match with no real polarity to
+    // gate on, which would silently defeat both safeguards above.
+    const skipValueMatch = NO_VALUE_MATCH_KEYS.has(key);
     for (const opt of el.options) {
-      const score = Math.max(
-        scoreOptionMatch(opt.textContent, targetText),
-        scoreOptionMatch(opt.value, targetText)
-      );
+      const score = skipValueMatch
+        ? scoreOptionMatchForKey(opt.textContent, targetText, key)
+        : Math.max(
+            scoreOptionMatchForKey(opt.textContent, targetText, key),
+            scoreOptionMatchForKey(opt.value, targetText, key)
+          );
       if (score > bestScore) {
         bestScore = score;
         best = opt;
       }
     }
-    if (best && bestScore >= 40) {
+    if (best && bestScore >= matchThreshold(key)) {
       setNativeValue(el, best.value);
       markFilled(el);
       return true;
@@ -348,13 +417,13 @@
       let bestScore = 0;
       for (const radio of radios) {
         const label = getOwnOptionLabel(radio) || radio.value;
-        const score = scoreOptionMatch(label, targetText);
+        const score = scoreOptionMatchForKey(label, targetText, key);
         if (score > bestScore) {
           bestScore = score;
           best = radio;
         }
       }
-      if (best && bestScore >= 40) {
+      if (best && bestScore >= matchThreshold(key)) {
         if (!best.checked) best.click();
         markFilled(best);
         filled = true;
@@ -719,21 +788,29 @@
     if (fresh) return fresh;
     // Some widgets keep one listbox element in the DOM at all times and
     // just toggle its visibility, so also accept an already-known one that
-    // has since become visible.
-    return all.find(isVisible) || null;
+    // has since become visible. Search from the end: a portal-style widget
+    // appends its listbox at the end of <body>, so when an earlier field's
+    // dropdown never got a confident match (and so was never clicked/
+    // closed), its now-stale listbox is still visible but sits earlier in
+    // document order — scanning in reverse prefers the current field's
+    // own listbox over that leftover one.
+    for (let i = all.length - 1; i >= 0; i--) {
+      if (isVisible(all[i])) return all[i];
+    }
+    return null;
   }
 
-  function pickBestOption(options, targetText) {
+  function pickBestOption(options, targetText, key) {
     let best = null;
     let bestScore = 0;
     for (const opt of options) {
-      const score = scoreOptionMatch(opt.textContent, targetText);
+      const score = scoreOptionMatchForKey(opt.textContent, targetText, key);
       if (score > bestScore) {
         bestScore = score;
         best = opt;
       }
     }
-    return bestScore >= 40 ? best : null;
+    return bestScore >= matchThreshold(key) ? best : null;
   }
 
   // A plain el.click() only ever fires a "click" event — some widget
@@ -759,7 +836,7 @@
 
     let options = listbox.querySelectorAll(OPTION_SELECTOR);
     let targetText = getEffectiveValue(key, profile, Array.from(options).map((o) => o.textContent));
-    let best = targetText ? pickBestOption(options, targetText) : null;
+    let best = targetText ? pickBestOption(options, targetText, key) : null;
 
     // A long option list (e.g. ~200 countries for a phone code picker) is
     // often virtualized — only a handful of entries near the top actually
@@ -776,7 +853,7 @@
           await sleep(400); // let the widget's own filtering settle
           options = listbox.querySelectorAll(OPTION_SELECTOR);
           targetText = getEffectiveValue(key, profile, Array.from(options).map((o) => o.textContent)) || queryValue;
-          best = pickBestOption(options, targetText);
+          best = pickBestOption(options, targetText, key);
           if (best) break;
         }
       }
@@ -817,7 +894,7 @@
         await sleep(400); // let the widget's own search/filter settle before reading its results
         const options = listbox.querySelectorAll(OPTION_SELECTOR);
         const targetText = getEffectiveValue(key, profile, Array.from(options).map((o) => o.textContent)) || queryValue;
-        best = pickBestOption(options, targetText);
+        best = pickBestOption(options, targetText, key);
       }
       if (best) break;
     }
