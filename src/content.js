@@ -703,29 +703,31 @@
     (openButton || inputEl).click();
 
     // Not every one of these widgets actually requires typing a search
-    // query — a short, fixed list (Veteran Status, Race, Gender) is likely
-    // to show all of its options as soon as it's opened. Try matching
-    // against whatever's already visible first: typing a full stored
-    // sentence like "I am not a protected veteran" into a box that expects
-    // a short query term (or none at all) can return zero server-side
-    // results, leaving that raw text sitting rejected in the box instead
-    // of ever selecting anything. Only fall back to typing if nothing
-    // matched what was already there — that's what a long searchable list
-    // (e.g. a school picker) actually needs.
+    // query — a short, fixed list (Veteran Status, Race, Gender) may show
+    // all of its options as soon as it's opened. Try matching against
+    // whatever's already visible first.
     let best = await tryMatchVisibleListbox(knownListboxes, key, profile);
 
+    // If that came up empty, this widget needs an actual typed search
+    // query — but a full stored sentence like "I am not a protected
+    // veteran" is a poor query for a live server-side search (confirmed on
+    // a real site: it came back "There were no results", leaving the field
+    // blank). Try progressively shorter, more distinctive query terms
+    // instead, using the FULL stored value only to pick the right option
+    // out of whatever candidates each query actually returns.
     if (!best) {
-      const queryValue = getComboboxQuery(key, profile);
-      if (!queryValue) return false;
-      setNativeValue(inputEl, queryValue);
-      inputEl.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
+      for (const queryValue of comboboxQueryVariants(key, profile)) {
+        setNativeValue(inputEl, queryValue);
+        inputEl.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
 
-      const listbox = await waitFor(() => findVisibleListbox(knownListboxes), CUSTOM_WIDGET_OPEN_TIMEOUT_MS);
-      if (listbox) {
-        await sleep(400); // let the widget's own search/filter settle before reading its results
-        const options = listbox.querySelectorAll(OPTION_SELECTOR);
-        const targetText = getEffectiveValue(key, profile, Array.from(options).map((o) => o.textContent)) || queryValue;
-        best = pickBestOption(options, targetText);
+        const listbox = await waitFor(() => findVisibleListbox(knownListboxes), CUSTOM_WIDGET_OPEN_TIMEOUT_MS);
+        if (listbox) {
+          await sleep(400); // let the widget's own search/filter settle before reading its results
+          const options = listbox.querySelectorAll(OPTION_SELECTOR);
+          const targetText = getEffectiveValue(key, profile, Array.from(options).map((o) => o.textContent)) || queryValue;
+          best = pickBestOption(options, targetText);
+        }
+        if (best) break;
       }
       if (!best) {
         if (inputEl.value) setNativeValue(inputEl, ""); // don't leave rejected free text sitting there
@@ -738,14 +740,32 @@
     return true;
   }
 
-  // A short query term is far more likely to actually match a search-driven
-  // widget's server-side lookup than a full stored sentence would — used
-  // only as the typed fallback when nothing was already visible on open.
-  function getComboboxQuery(key, profile) {
-    if (key === "race" && (profile.hispanicLatino || "").trim().toLowerCase() === "yes") {
-      return "Hispanic";
+  const QUERY_STOPWORDS = new Set([
+    "i", "am", "is", "are", "a", "an", "the", "to", "of", "or", "and", "not",
+    "my", "me", "you", "your", "will", "would", "have", "has", "do", "does"
+  ]);
+
+  // Query terms to try, in order, when a search is actually required: the
+  // resolved value as-is first (works fine on some sites), then its single
+  // most distinctive word (longest non-stopword — e.g. "veteran" out of "I
+  // am not a protected veteran"), since a full sentence can fail a live
+  // search that a short term would have matched.
+  function comboboxQueryVariants(key, profile) {
+    const value =
+      key === "race" && (profile.hispanicLatino || "").trim().toLowerCase() === "yes"
+        ? "Hispanic"
+        : resolveValue(key, profile);
+    if (!value) return [];
+
+    const variants = [value];
+    const words = normalizeSignal(value)
+      .split(" ")
+      .filter((w) => w.length > 2 && !QUERY_STOPWORDS.has(w));
+    if (words.length > 0) {
+      const longest = words.reduce((a, b) => (b.length > a.length ? b : a));
+      if (longest.toLowerCase() !== value.trim().toLowerCase()) variants.push(longest);
     }
-    return resolveValue(key, profile);
+    return variants;
   }
 
   async function tryMatchVisibleListbox(knownListboxes, key, profile) {
