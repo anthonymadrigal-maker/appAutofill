@@ -36,15 +36,30 @@ const FIELD_RULES = {
   github: [/\bgit\s*hub\b/],
   portfolio: [/\bportfolio\b/, /\bpersonal\s*website\b/, /\bwebsite\b/, /\bother\s*url\b/],
 
-  school: [/\bschool\b/, /\buniversity\b/, /\bcollege\b/, /\binstitution\b/, /\balma\s*mater\b/],
-  degree: [/\bdegree\s*type\b/, /\bdegree\b/, /\beducation\s*level\b/, /\blevel\s*of\s*education\b/],
+  // "college" alone is too common in unrelated questions (e.g. "current
+  // year of study in college"), so it only counts here alongside a word
+  // that means "which one do you attend" / "what is its name".
+  school: [
+    /\bschool\b/, /\buniversity\b/, /\binstitution\b/, /\balma\s*mater\b/,
+    /\b(college|university)\s*(name)?\b.*\b(attend|currently\s*attend)\b/,
+    /\bname\s*of\s*the\s*(college|university)\b/,
+    /\bwhat\s*college\b/, /\bwhich\s*college\b/
+  ],
   gpaScale: [/\bgpa\s*scale\b/, /\bscale\s*max\b/],
   gpa: [/\bgpa\b/, /\bgrade\s*point\s*average\b/],
   major: [/\bmajor\b/, /\bfield\s*of\s*study\b/, /\barea\s*of\s*study\b/, /\bconcentration\b/, /\bdiscipline\b/],
   minor: [/\bminor\b/],
   graduationMonth: [/\bgraduation\s*month\b/, /\bgrad\s*month\b/],
-  graduationYear: [/\bgraduation\s*year\b/, /\bgrad\s*year\b/, /\bclass\s*of\b/, /\banticipated\s*graduation\b/],
+  // Checked before "degree" below: phrasing like "what year ... will you
+  // receive your degree" contains the word "degree" too, and must resolve
+  // to a year, not to the degree-level select.
+  graduationYear: [
+    /\bgraduation\s*year\b/, /\bgrad\s*year\b/, /\bclass\s*of\b/, /\banticipated\s*graduation\b/,
+    /\byear\b.*\b(receive|complete|earn|finish)\b.*\bdegree\b/,
+    /\bwhat\s*year\b.*\bgraduat/
+  ],
   graduationDate: [/\bgraduation\s*date\b/, /\bexpected\s*graduation\b/, /\banticipated\s*grad(uation)?\s*date\b/],
+  degree: [/\bdegree\s*type\b/, /\bdegree\b/, /\beducation\s*level\b/, /\blevel\s*of\s*education\b/],
 
   currentlyWorking: [/\bcurrently\s*work\s*here\b/, /\bi\s*currently\s*work\b/, /\bthis\s*is\s*my\s*current\s*(job|position|employer)\b/],
   employer: [/\bcurrent\s*employer\b/, /\bmost\s*recent\s*employer\b/, /\bemployer\s*name\b/, /\bemployer\b/, /\bcompany\s*name\b/],
@@ -66,8 +81,14 @@ const FIELD_RULES = {
   disabilityStatus: [/\bdisability\b/, /\bdisabled\b/, /\bdifferently\s*abled\b/],
   gender: [/\bgender\s*identity\b/, /\bgender\b/, /\bsex\b(?!ual)/],
 
-  desiredSalary: [/\bdesired\s*salary\b/, /\bexpected\s*salary\b/, /\bsalary\s*expect/, /\bcompensation\s*expect/, /\bpay\s*expect/, /\bsalary\s*requirement/],
-  availableStartDate: [/\bwhen\s*can\s*you\s*start\b/, /\bavailab(le|ility)\s*(to\s*start|date)\b/, /\bearliest\s*start\s*date\b/, /\bstart\s*date\b/],
+  desiredSalary: [
+    /\bdesired\s*salary\b/, /\bexpected\s*salary\b/, /\bsalary\s*expect/, /\bcompensation\s*expect/,
+    /\bpay\s*expect/, /\bsalary\s*requirement/, /\b(salary|wage|compensation|pay)\b.*\brequir/
+  ],
+  availableStartDate: [
+    /\bwhen\s*can\s*you\s*start\b/, /\bavailab(le|ility)\s*(to\s*start|date)\b/, /\bdate\s*availab(le|ility)\b/,
+    /\bearliest\s*start\s*date\b/, /\bstart\s*date\b/
+  ],
   willingToRelocate: [/\brelocat(e|ion)\b/],
   remotePreference: [/\bremote\b/, /\bwork\s*(location|arrangement)\s*preference\b/, /\blocation\s*preference\b/, /\bonsite\s*or\s*remote\b/],
   noticePeriod: [/\bnotice\s*period\b/],
@@ -83,8 +104,8 @@ const FIELD_MATCH_ORDER = [
   "email", "phone",
   "addressZip", "addressState", "addressCity", "addressCountry", "addressStreet",
   "linkedin", "github", "portfolio",
-  "school", "degree", "gpaScale", "gpa", "major", "minor",
-  "graduationMonth", "graduationYear", "graduationDate",
+  "school", "gpaScale", "gpa", "major", "minor",
+  "graduationMonth", "graduationYear", "graduationDate", "degree",
   "currentlyWorking", "employer", "jobTitle", "workStartDate", "workEndDate", "workDescription",
   "usCitizen", "needsSponsorship", "workAuthorized", "over18", "felonyConviction", "nonCompete",
   "hispanicLatino", "race", "veteranStatus", "disabilityStatus", "gender",
@@ -96,6 +117,15 @@ const FIELD_MATCH_ORDER = [
 // a checkbox labeled "I am NOT subject to a non-compete agreement".
 const NEGATION_PATTERN = /\b(not|n't|never|without|decline|no\s)\b/;
 
+// Matches follow-up fields that only make sense if a *different* question
+// was answered a particular way, e.g. "If you responded 'yes' to the prior
+// statement, please indicate the name of the former employer..." next to a
+// legal/compliance Yes-No question. These are always skipped: filling one
+// in from an unrelated profile field (e.g. dropping your current employer's
+// name into a non-compete disclosure) can misrepresent a legal answer you
+// never actually gave. Left for the applicant to answer by hand.
+const CONDITIONAL_FOLLOWUP_PATTERN = /\bif\s*(you\s*)?(responded|answered|selected|select)\b|\bi\s*responded\b|\bif\s*(yes|no|so|applicable)\b/;
+
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { FIELD_RULES, FIELD_MATCH_ORDER, NEGATION_PATTERN };
+  module.exports = { FIELD_RULES, FIELD_MATCH_ORDER, NEGATION_PATTERN, CONDITIONAL_FOLLOWUP_PATTERN };
 }

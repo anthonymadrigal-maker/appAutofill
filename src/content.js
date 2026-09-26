@@ -354,6 +354,7 @@
       const already = radios.some((r) => r.checked);
       if (already) continue;
       const signal = getFieldSignal(radios[0]) + " " + normalizeSignal(findNearbyQuestionText(radios[0]));
+      if (CONDITIONAL_FOLLOWUP_PATTERN.test(signal)) continue;
       const key = matchKeyForSignal(signal);
       if (!key) continue;
       const value = resolveValue(key, profile);
@@ -368,6 +369,7 @@
     for (const el of singles) {
       const signal = getFieldSignal(el);
       if (!signal) continue;
+      if (CONDITIONAL_FOLLOWUP_PATTERN.test(signal)) continue;
       const key = matchKeyForSignal(signal);
       if (!key) continue;
       const value = resolveValue(key, profile);
