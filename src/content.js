@@ -85,9 +85,15 @@
       let sibling = node.previousElementSibling;
       let hops = 0;
       while (sibling && hops < 2) {
-        const containsControl = !!sibling.querySelector(
-          'input, select, textarea, [role="radio"], [role="checkbox"], [role="option"], [role="combobox"]'
-        );
+        // [class*="__control"]/[class*="__menu"] catch react-select-style
+        // custom dropdowns the same way the ARIA roles catch native-ish
+        // ones — without this, two such dropdowns sitting side by side
+        // (e.g. a phone number's "Country" code selector next to "Phone")
+        // can have one mistaken for the other's label, the same bug
+        // already fixed once for neighboring ARIA radio buttons.
+        const controlSelector =
+          'input, select, textarea, [role="radio"], [role="checkbox"], [role="option"], [role="combobox"], [class*="__control"], [class*="__menu"]';
+        const containsControl = sibling.matches(controlSelector) || !!sibling.querySelector(controlSelector);
         if (HEADING_TAG_RE.test(sibling.tagName) && !containsControl) {
           const t = textOf(sibling).trim();
           if (t && t.length < 200) return t;
@@ -697,9 +703,31 @@
     const listbox = await waitFor(() => findVisibleListbox(knownListboxes), CUSTOM_WIDGET_OPEN_TIMEOUT_MS);
     if (!listbox) return false;
 
-    const options = listbox.querySelectorAll(OPTION_SELECTOR);
-    const targetText = getEffectiveValue(key, profile, Array.from(options).map((o) => o.textContent));
-    const best = targetText ? pickBestOption(options, targetText) : null;
+    let options = listbox.querySelectorAll(OPTION_SELECTOR);
+    let targetText = getEffectiveValue(key, profile, Array.from(options).map((o) => o.textContent));
+    let best = targetText ? pickBestOption(options, targetText) : null;
+
+    // A long option list (e.g. ~200 countries for a phone code picker) is
+    // often virtualized — only a handful of entries near the top actually
+    // exist in the DOM until you type to filter. If nothing matched what
+    // was already rendered, look for this control's own internal search
+    // input (react-select always renders one, even when the dropdown
+    // doesn't look obviously searchable) and type into it.
+    if (!best) {
+      const searchInput = trigger.querySelector("input");
+      if (searchInput) {
+        for (const queryValue of comboboxQueryVariants(key, profile)) {
+          setNativeValue(searchInput, queryValue);
+          searchInput.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
+          await sleep(400); // let the widget's own filtering settle
+          options = listbox.querySelectorAll(OPTION_SELECTOR);
+          targetText = getEffectiveValue(key, profile, Array.from(options).map((o) => o.textContent)) || queryValue;
+          best = pickBestOption(options, targetText);
+          if (best) break;
+        }
+      }
+    }
+
     if (best) {
       simulateClick(best);
       markFilled(trigger);
