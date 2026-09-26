@@ -482,16 +482,22 @@
         ariaGroups.get(groupKey).push(radio);
       }
       for (const radios of ariaGroups.values()) {
-        if (radios.length < 2) continue;
-        if (radios.some((r) => r.getAttribute("aria-checked") === "true")) continue;
-        const signal = getFieldSignal(radios[0]) + " " + normalizeSignal(findNearbyQuestionText(radios[0]));
-        if (CONDITIONAL_FOLLOWUP_PATTERN.test(signal)) continue;
-        const key = matchKeyForSignal(signal);
-        if (!key) continue;
-        if (!keyHasFillableValue(key, profile)) continue;
-        if (fillAriaRadioGroup(radios, key, profile)) {
-          filledCount++;
-          matchedKeys.add(key);
+        try {
+          if (radios.length < 2) continue;
+          if (radios.some((r) => r.getAttribute("aria-checked") === "true")) continue;
+          const signal = getFieldSignal(radios[0]) + " " + normalizeSignal(findNearbyQuestionText(radios[0]));
+          if (CONDITIONAL_FOLLOWUP_PATTERN.test(signal)) continue;
+          const key = matchKeyForSignal(signal);
+          if (!key) continue;
+          if (!keyHasFillableValue(key, profile)) continue;
+          if (fillAriaRadioGroup(radios, key, profile)) {
+            filledCount++;
+            matchedKeys.add(key);
+          }
+        } catch (err) {
+          // One malformed/unexpected ARIA radio group must never abort
+          // every field that would otherwise be processed after it.
+          console.error("[Internship Autofill] ARIA radio group failed:", err);
         }
       }
     }
@@ -756,26 +762,37 @@
   async function fillCustomWidgets(profile) {
     const triggers = Array.from(document.querySelectorAll(CUSTOM_TRIGGER_SELECTOR));
     for (const trigger of triggers) {
-      if (!isVisible(trigger)) continue;
-      const signal = getFieldSignal(trigger) + " " + normalizeSignal(findNearbyQuestionText(trigger));
-      if (CONDITIONAL_FOLLOWUP_PATTERN.test(signal)) continue;
-      const key = matchKeyForSignal(signal);
-      if (!key) continue;
-      if (!keyHasFillableValue(key, profile)) continue;
-      await fillCustomTrigger(trigger, key, profile);
-      await sleep(150);
+      try {
+        if (!isVisible(trigger)) continue;
+        const signal = getFieldSignal(trigger) + " " + normalizeSignal(findNearbyQuestionText(trigger));
+        if (CONDITIONAL_FOLLOWUP_PATTERN.test(signal)) continue;
+        const key = matchKeyForSignal(signal);
+        if (!key) continue;
+        if (!keyHasFillableValue(key, profile)) continue;
+        await fillCustomTrigger(trigger, key, profile);
+        await sleep(150);
+      } catch (err) {
+        // One widget behaving unexpectedly (a popup that never closes, an
+        // option list with a structure we didn't anticipate, etc.) must
+        // never take down every dropdown after it in the loop.
+        console.error("[Internship Autofill] custom dropdown trigger failed:", err);
+      }
     }
 
     const comboboxInputs = Array.from(document.querySelectorAll('input[role="combobox"]'));
     for (const inputEl of comboboxInputs) {
-      if (!isVisible(inputEl) || inputEl.value) continue;
-      const signal = getFieldSignal(inputEl) + " " + normalizeSignal(findNearbyQuestionText(inputEl));
-      if (CONDITIONAL_FOLLOWUP_PATTERN.test(signal)) continue;
-      const key = matchKeyForSignal(signal);
-      if (!key) continue;
-      if (!keyHasFillableValue(key, profile)) continue;
-      await fillPaginatedCombobox(inputEl, key, profile);
-      await sleep(150);
+      try {
+        if (!isVisible(inputEl) || inputEl.value) continue;
+        const signal = getFieldSignal(inputEl) + " " + normalizeSignal(findNearbyQuestionText(inputEl));
+        if (CONDITIONAL_FOLLOWUP_PATTERN.test(signal)) continue;
+        const key = matchKeyForSignal(signal);
+        if (!key) continue;
+        if (!keyHasFillableValue(key, profile)) continue;
+        await fillPaginatedCombobox(inputEl, key, profile);
+        await sleep(150);
+      } catch (err) {
+        console.error("[Internship Autofill] combobox field failed:", err);
+      }
     }
   }
 
