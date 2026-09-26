@@ -595,27 +595,32 @@
 
   // ---------- custom (non-native) dropdown widgets ----------
   //
-  // Some ATS platforms (SAP SuccessFactors/Fiori in particular) don't use a
-  // native <select> at all — the visible "dropdown" is a clickable trigger
-  // (role="button", commonly classed fd-select__control) that, on click,
-  // renders a popup list elsewhere in the DOM (role="listbox" of
-  // role="option" items, often appended near <body> rather than nested
-  // inside the control). A related "searchable" variant pairs a real
-  // <input role="combobox"> with a button that opens that same kind of
-  // popup, filtered by whatever you type into the input — used for things
-  // like a long school list.
+  // Some ATS platforms don't use a native <select> at all — the visible
+  // "dropdown" is a clickable trigger that, on click, renders a popup list
+  // elsewhere in the DOM. Two families confirmed on real sites so far:
+  //   - SAP SuccessFactors/Fiori: role="button", classed fd-select__control,
+  //     opens a role="listbox" of role="option" items.
+  //   - react-select (very common on modern React-built career sites,
+  //     confirmed on a Greenhouse job-boards.greenhouse.io posting): a
+  //     clickable control div whose class follows react-select's own BEM
+  //     convention regardless of the site's chosen prefix — always
+  //     "{prefix}__control", opening a "{prefix}__menu" of
+  //     "{prefix}__option" items. Matching on the "__control"/"__menu"/
+  //     "__option" suffix (rather than a hardcoded prefix like
+  //     "select__") generalizes across any site's prefix choice.
+  // A related "searchable" variant pairs a real <input role="combobox">
+  // with a button that opens that same kind of popup, filtered by whatever
+  // you type into the input — used for things like a long school list.
   //
   // These need actual simulated interaction — click to open, wait for the
   // popup to render, click the matching option — rather than a direct DOM
-  // value write. This is built around ARIA roles (role="button",
-  // role="listbox", role="option", role="combobox") plus the concrete
-  // class name observed (fd-select__control) to generalize as far as
-  // reasonably possible; exact markup and popup timing still vary by site,
-  // so treat this as best-effort and expect it may need tuning per ATS.
+  // value write. Exact markup and popup timing still vary by site, so
+  // treat this as best-effort and expect it may need tuning per ATS.
 
-  const CUSTOM_TRIGGER_SELECTOR = '.fd-select__control, a[role="button"][aria-haspopup], button[aria-haspopup="listbox"]';
-  const OPTION_SELECTOR = '[role="option"], li';
-  const LISTBOX_SELECTOR = '[role="listbox"]';
+  const CUSTOM_TRIGGER_SELECTOR =
+    '.fd-select__control, a[role="button"][aria-haspopup], button[aria-haspopup="listbox"], [class*="__control"]';
+  const OPTION_SELECTOR = '[role="option"], li, [class*="__option"]';
+  const LISTBOX_SELECTOR = '[role="listbox"], [class*="__menu"]';
   const CUSTOM_WIDGET_OPEN_TIMEOUT_MS = 1500;
 
   function waitFor(predicate, timeoutMs, intervalMs = 100) {
@@ -671,10 +676,23 @@
     return bestScore >= 40 ? best : null;
   }
 
+  // A plain el.click() only ever fires a "click" event — some widget
+  // libraries (react-select among them, in several versions) open their
+  // menu on mousedown instead, specifically to support click-and-drag
+  // selection, so a click-only simulation can silently do nothing. Firing
+  // the full mousedown/mouseup/click sequence covers both styles without
+  // being any riskier for widgets that only listen for click.
+  function simulateClick(el) {
+    const opts = { bubbles: true, cancelable: true, view: window };
+    el.dispatchEvent(new MouseEvent("mousedown", opts));
+    el.dispatchEvent(new MouseEvent("mouseup", opts));
+    el.click();
+  }
+
   async function fillCustomTrigger(trigger, key, profile) {
     const knownListboxes = new Set(document.querySelectorAll(LISTBOX_SELECTOR));
     const wasOpen = trigger.getAttribute("aria-expanded") === "true";
-    if (!wasOpen) trigger.click();
+    if (!wasOpen) simulateClick(trigger);
 
     const listbox = await waitFor(() => findVisibleListbox(knownListboxes), CUSTOM_WIDGET_OPEN_TIMEOUT_MS);
     if (!listbox) return false;
@@ -683,11 +701,11 @@
     const targetText = getEffectiveValue(key, profile, Array.from(options).map((o) => o.textContent));
     const best = targetText ? pickBestOption(options, targetText) : null;
     if (best) {
-      best.click();
+      simulateClick(best);
       markFilled(trigger);
       return true;
     }
-    if (!wasOpen) trigger.click(); // nothing matched — close it back up
+    if (!wasOpen) simulateClick(trigger); // nothing matched — close it back up
     return false;
   }
 
@@ -726,7 +744,7 @@
       return false;
     }
 
-    best.click();
+    simulateClick(best);
     markFilled(inputEl);
     return true;
   }
