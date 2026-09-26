@@ -693,46 +693,37 @@
 
   async function fillPaginatedCombobox(inputEl, key, profile) {
     const knownListboxes = new Set(document.querySelectorAll(LISTBOX_SELECTOR));
-    // Start the search at the parent, not inputEl itself — the input's own
-    // class often *also* contains "input-group" as a substring (e.g.
-    // "fd-input-group__input"), which made closest() match the input
-    // itself and then look for a <button> *inside* it (impossible), always
-    // coming up empty.
-    const container = inputEl.parentElement && inputEl.parentElement.closest('[class*="input-group" i]');
-    const openButton = (container || inputEl.parentElement) && (container || inputEl.parentElement).querySelector("button");
-    (openButton || inputEl).click();
+    // Click the input itself, not a separate "open" button. An earlier
+    // version tried to find and click a dedicated button instead (plus an
+    // extra wait-and-check step before typing anything), and a real-site
+    // test confirmed that combination is what broke selections from
+    // sticking — clicking the input directly, immediately followed by
+    // typing, is the interaction this widget actually expects.
+    inputEl.click();
 
-    // Not every one of these widgets actually requires typing a search
-    // query — a short, fixed list (Veteran Status, Race, Gender) may show
-    // all of its options as soon as it's opened. Try matching against
-    // whatever's already visible first.
-    let best = await tryMatchVisibleListbox(knownListboxes, key, profile);
+    // A full stored sentence like "I am not a protected veteran" is a poor
+    // query for a live server-side search (confirmed on a real site: it
+    // came back "There were no results", leaving the field blank). Try
+    // progressively shorter, more distinctive query terms instead, using
+    // the FULL stored value only to pick the right option out of whatever
+    // candidates each query actually returns.
+    let best = null;
+    for (const queryValue of comboboxQueryVariants(key, profile)) {
+      setNativeValue(inputEl, queryValue);
+      inputEl.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
 
-    // If that came up empty, this widget needs an actual typed search
-    // query — but a full stored sentence like "I am not a protected
-    // veteran" is a poor query for a live server-side search (confirmed on
-    // a real site: it came back "There were no results", leaving the field
-    // blank). Try progressively shorter, more distinctive query terms
-    // instead, using the FULL stored value only to pick the right option
-    // out of whatever candidates each query actually returns.
+      const listbox = await waitFor(() => findVisibleListbox(knownListboxes), CUSTOM_WIDGET_OPEN_TIMEOUT_MS);
+      if (listbox) {
+        await sleep(400); // let the widget's own search/filter settle before reading its results
+        const options = listbox.querySelectorAll(OPTION_SELECTOR);
+        const targetText = getEffectiveValue(key, profile, Array.from(options).map((o) => o.textContent)) || queryValue;
+        best = pickBestOption(options, targetText);
+      }
+      if (best) break;
+    }
     if (!best) {
-      for (const queryValue of comboboxQueryVariants(key, profile)) {
-        setNativeValue(inputEl, queryValue);
-        inputEl.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
-
-        const listbox = await waitFor(() => findVisibleListbox(knownListboxes), CUSTOM_WIDGET_OPEN_TIMEOUT_MS);
-        if (listbox) {
-          await sleep(400); // let the widget's own search/filter settle before reading its results
-          const options = listbox.querySelectorAll(OPTION_SELECTOR);
-          const targetText = getEffectiveValue(key, profile, Array.from(options).map((o) => o.textContent)) || queryValue;
-          best = pickBestOption(options, targetText);
-        }
-        if (best) break;
-      }
-      if (!best) {
-        if (inputEl.value) setNativeValue(inputEl, ""); // don't leave rejected free text sitting there
-        return false;
-      }
+      if (inputEl.value) setNativeValue(inputEl, ""); // don't leave rejected free text sitting there
+      return false;
     }
 
     best.click();
@@ -766,14 +757,6 @@
       if (longest.toLowerCase() !== value.trim().toLowerCase()) variants.push(longest);
     }
     return variants;
-  }
-
-  async function tryMatchVisibleListbox(knownListboxes, key, profile) {
-    const listbox = await waitFor(() => findVisibleListbox(knownListboxes), 700);
-    if (!listbox) return null;
-    const options = listbox.querySelectorAll(OPTION_SELECTOR);
-    const targetText = getEffectiveValue(key, profile, Array.from(options).map((o) => o.textContent));
-    return targetText ? pickBestOption(options, targetText) : null;
   }
 
   // Runs after the synchronous pass, one widget at a time (opening two of
