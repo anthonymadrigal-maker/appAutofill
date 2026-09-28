@@ -199,6 +199,33 @@
 
   const HISPANIC_OPTION_PATTERN = /hispanic|latino|latina|latinx/i;
 
+  // Some sites split "degree level" into separate options per type — e.g.
+  // "Bachelor of Arts" and "Bachelor of Science" as two distinct choices
+  // rather than one generic "Bachelor's Degree". Plain word-overlap
+  // scoring can't tell those apart (neither contains the stored
+  // "Bachelor's Degree", and both share only the word "bachelor" with it,
+  // so it's a coin-flip which one wins the tie) — confirmed on a real
+  // site: "Bachelor of Arts" got picked over "Bachelor of Science" this
+  // way. Only applied when the applicant has actually set a degree type;
+  // left blank, this never engages and generic "Bachelor's Degree"-only
+  // sites are unaffected.
+  const DEGREE_TYPE_PATTERNS = {
+    "Science (BS/MS)": /\bscience\b|\bb\.?\s*sc\.?\b|\bm\.?\s*sc\.?\b|\bbs\b|\bms\b/i,
+    "Arts (BA/MA)": /\barts\b|\bb\.?\s*a\.?\b|\bm\.?\s*a\.?\b/i,
+    "Business Administration (BBA/MBA)": /\bbusiness\s*administration\b|\bbba\b|\bmba\b/i,
+    "Fine Arts (BFA/MFA)": /\bfine\s*arts\b|\bbfa\b|\bmfa\b/i,
+    "Engineering (BEng/MEng)": /\bengineering\b|\bb\.?\s*eng\.?\b|\bm\.?\s*eng\.?\b|\bbse\b/i
+  };
+
+  function degreeLevelWord(degreeValue) {
+    const v = (degreeValue || "").toLowerCase();
+    if (/associate/.test(v)) return "associate";
+    if (/bachelor/.test(v)) return "bachelor";
+    if (/master/.test(v)) return "master";
+    if (/doctor|phd/.test(v)) return "doctor";
+    return null;
+  }
+
   // Some ATS platforms fold ethnicity into the same single-choice list as
   // race (e.g. "White", "Hispanic or Latino", "Black or African American",
   // ... as one mutually-exclusive control) instead of asking them as two
@@ -250,6 +277,14 @@
         const closest = findClosestSeasonOption(season, optionTexts);
         if (closest) return closest;
       }
+    }
+    if (key === "degree" && optionTexts && profile.degreeType && DEGREE_TYPE_PATTERNS[profile.degreeType]) {
+      const level = degreeLevelWord(profile.degree);
+      const typePattern = DEGREE_TYPE_PATTERNS[profile.degreeType];
+      const preferred = optionTexts.find(
+        (t) => typePattern.test(t) && (!level || new RegExp(`\\b${level}`, "i").test(t))
+      );
+      if (preferred) return preferred;
     }
     return resolveValue(key, profile);
   }

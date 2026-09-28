@@ -48,6 +48,24 @@ const PROFILE_SCHEMA = [
           "Other"
         ]
       },
+      // Some sites split the degree question into separate "Bachelor of
+      // Arts" / "Bachelor of Science" (etc.) options instead of one generic
+      // "Bachelor's Degree" — content.js prefers whichever option matches
+      // both the level above and this type when both are present, rather
+      // than an arbitrary tie-break between equally-generic-looking
+      // options. Leave blank if this doesn't apply / you're not sure.
+      {
+        key: "degreeType",
+        label: "Degree Type (only if a site asks BA vs BS, etc.)",
+        type: "select",
+        options: [
+          "Science (BS/MS)",
+          "Arts (BA/MA)",
+          "Business Administration (BBA/MBA)",
+          "Fine Arts (BFA/MFA)",
+          "Engineering (BEng/MEng)"
+        ]
+      },
       { key: "major", label: "Major / Field of Study", type: "text" },
       { key: "minor", label: "Minor (optional)", type: "text" },
       {
