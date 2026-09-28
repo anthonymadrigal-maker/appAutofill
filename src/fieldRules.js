@@ -102,15 +102,20 @@ const FIELD_RULES = {
   // either before or after "location" in the combined signal text (e.g.
   // "Preferred location").
   workLocation: [/^(?!.*\b(preferred|prefer|remote|arrangement)\b).*\blocation\b/],
-  // Workday's own work-experience blocks label these fields with just
-  // "From"/"To" — too generic to safely match here (getFieldSignal always
-  // folds in the element's id/name/data-automation-id too, so a plain
-  // "From" label never actually produces a bare "from" signal in
-  // practice, and a loose match risks catching an unrelated date field
-  // elsewhere and filling it with the wrong date). Needs a real selector
-  // from the live page rather than a guess — see README/TODO.
   workStartDate: [/\bemployment\s*start\s*date\b/, /\bwork\s*start\s*date\b/, /\bjob\s*start\s*date\b/],
   workEndDate: [/\bemployment\s*end\s*date\b/, /\bwork\s*end\s*date\b/, /\bjob\s*end\s*date\b/],
+  // Workday's From/To date fields aren't one MM/YYYY input — confirmed via
+  // a live DOM dump — they're two separate text inputs per date (Month,
+  // Year), each with a generic id like "...startDate-dateSectionMonth-
+  // input" / "...endDate-dateSectionYear-input" and an aria-label of just
+  // "Month"/"Year". Matching on the generic aria-label alone would be far
+  // too broad, but requiring "start date"/"end date" together with
+  // "month"/"year" in the same signal (both present in that id text) is
+  // specific enough to be safe.
+  workStartMonth: [/\bstart\s*date\b.*\bmonth\b/],
+  workStartYear: [/\bstart\s*date\b.*\byear\b/],
+  workEndMonth: [/\bend\s*date\b.*\bmonth\b/],
+  workEndYear: [/\bend\s*date\b.*\byear\b/],
   workDescription: [/\bresponsibilit(y|ies)\b/, /\bjob\s*duties\b/, /\bdescription\s*of\s*(work|role|duties)\b/, /\bsummary\s*of\s*experience\b/, /\brole\s*description\b/],
 
   usCitizen: [/\bu\.?\s*s\.?\s*citizen\b/, /\bcitizen\s*of\s*the\s*united\s*states\b/, /\bare\s*you\s*a\s*citizen\b/],
@@ -176,7 +181,8 @@ const FIELD_MATCH_ORDER = [
   "linkedin", "github", "portfolio",
   "planToAttendGradSchool", "school", "classStanding", "gpaScale", "gpa", "major", "minor",
   "graduationMonth", "graduationYear", "graduationDate", "degree",
-  "currentlyWorking", "employer", "jobTitle", "workLocation", "workStartDate", "workEndDate", "workDescription",
+  "currentlyWorking", "employer", "jobTitle", "workLocation",
+  "workStartMonth", "workStartYear", "workEndMonth", "workEndYear", "workStartDate", "workEndDate", "workDescription",
   "usCitizen", "needsSponsorship", "workAuthorized", "over18", "felonyConviction", "nonCompete",
   "clearanceLevel", "securityClearanceEligible", "securityClearanceGranted", "consentBackgroundCheck", "previouslyEmployedHere", "governmentEmployee",
   "hispanicLatino", "race", "veteranStatus", "disabilityStatus", "gender",

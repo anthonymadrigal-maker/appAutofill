@@ -172,8 +172,21 @@
     workEndDate: "endDate",
     workDescription: "description"
   };
-  const WORK_HISTORY_REPEATABLE_KEYS = new Set([...Object.keys(WORK_HISTORY_KEY_TO_FIELD), "currentlyWorking"]);
+  // Workday doesn't render one MM/YYYY input for a work-experience date —
+  // confirmed via a live DOM dump — it's two separate text inputs per
+  // date (Month, Year). Each entry's startDate/endDate is still stored as
+  // one "MM/YYYY" string (matching the single "Most Recent Work
+  // Experience" fields' own format), split apart only here at fill time.
+  const WORK_HISTORY_DATE_PART_KEYS = new Set(["workStartMonth", "workStartYear", "workEndMonth", "workEndYear"]);
+  const WORK_HISTORY_REPEATABLE_KEYS = new Set([
+    ...Object.keys(WORK_HISTORY_KEY_TO_FIELD), "currentlyWorking", ...WORK_HISTORY_DATE_PART_KEYS
+  ]);
   let workHistoryBlockIndex = -1;
+
+  function splitMonthYear(dateStr) {
+    const m = /^(\d{1,2})\s*\/\s*(\d{4})$/.exec((dateStr || "").trim());
+    return m ? { month: m[1].padStart(2, "0"), year: m[2] } : { month: "", year: "" };
+  }
 
   function peekWorkHistoryValue(key, profile) {
     if (!WORK_HISTORY_REPEATABLE_KEYS.has(key)) return undefined;
@@ -182,6 +195,11 @@
     const entry = workHistoryBlockIndex >= 0 ? entries[workHistoryBlockIndex] : undefined;
     if (!entry) return ""; // past the last entry, or not inside a tracked block yet
     if (key === "currentlyWorking") return entry.currentlyWorkHere ? "Yes" : "No";
+    if (WORK_HISTORY_DATE_PART_KEYS.has(key)) {
+      const isStart = key === "workStartMonth" || key === "workStartYear";
+      const parts = splitMonthYear(isStart ? entry.startDate : entry.endDate);
+      return key.endsWith("Month") ? parts.month : parts.year;
+    }
     return entry[WORK_HISTORY_KEY_TO_FIELD[key]] || "";
   }
 
@@ -600,6 +618,16 @@
     });
   }
 
+  // Workday reuses the same `name` ("currentlyWorkHere") on every
+  // repeatable Work Experience block's checkbox — indistinguishable from a
+  // real "check every option that applies" group by name alone. Resolving
+  // each one's own key up front (cheap; this only runs once per checkbox)
+  // is the only reliable way to tell them apart before grouping.
+  function isRepeatableWorkHistoryCheckbox(el) {
+    const signal = getFieldSignal(el);
+    return signal ? matchKeyForSignal(signal) === "currentlyWorking" : false;
+  }
+
   function groupRadiosAndCheckboxes(elements) {
     const radioGroups = new Map();
     const checkboxGroups = new Map();
@@ -609,10 +637,18 @@
         const key = el.name || `__unnamed_${el.id}`;
         if (!radioGroups.has(key)) radioGroups.set(key, []);
         radioGroups.get(key).push(el);
-      } else if (el.tagName === "INPUT" && el.type === "checkbox" && el.name) {
+      } else if (el.tagName === "INPUT" && el.type === "checkbox" && el.name && !isRepeatableWorkHistoryCheckbox(el)) {
         if (!checkboxGroups.has(el.name)) checkboxGroups.set(el.name, []);
         checkboxGroups.get(el.name).push(el);
       } else {
+        // A repeatable-work-history checkbox (Workday reuses the same
+        // `name` — "currentlyWorkHere" — across every block) lands here
+        // even though it has a `name`: each one belongs to its own block
+        // and must stay at its natural DOM position among singles, right
+        // next to that block's own Job Title, so it reads the shared work-
+        // history cursor at the correct point rather than whatever value
+        // that cursor has advanced to by the time a same-named group gets
+        // processed as a batch, after every block's fields.
         singles.push(el);
       }
     }
