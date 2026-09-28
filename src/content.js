@@ -153,7 +153,41 @@
 
   // ---------- value resolution ----------
 
+  // Repeatable "Work Experience" blocks (Workday's "My Experience" page,
+  // and any similarly-structured ATS): profile.workHistoryEntries is an
+  // ordered array the applicant fills in once, in the same order they'll
+  // click "Add Another" on the real form. Rather than track a separate
+  // occurrence counter per field key (which drifts out of sync the moment
+  // a field is conditionally absent — Workday drops the "To" date entirely
+  // once "I currently work here" is checked), a single shared cursor marks
+  // "which block are we in," advanced only when a Job Title field is
+  // matched — it's the one field every block is guaranteed to have, always
+  // first. Every other repeatable-key field in that same block just reads
+  // the cursor's current position without moving it.
+  const WORK_HISTORY_KEY_TO_FIELD = {
+    jobTitle: "jobTitle",
+    employer: "company",
+    workLocation: "location",
+    workStartDate: "startDate",
+    workEndDate: "endDate",
+    workDescription: "description"
+  };
+  const WORK_HISTORY_REPEATABLE_KEYS = new Set([...Object.keys(WORK_HISTORY_KEY_TO_FIELD), "currentlyWorking"]);
+  let workHistoryBlockIndex = -1;
+
+  function peekWorkHistoryValue(key, profile) {
+    if (!WORK_HISTORY_REPEATABLE_KEYS.has(key)) return undefined;
+    const entries = profile.workHistoryEntries;
+    if (!Array.isArray(entries) || entries.length === 0) return undefined; // feature unused -> fall back to the flat single-job fields
+    const entry = workHistoryBlockIndex >= 0 ? entries[workHistoryBlockIndex] : undefined;
+    if (!entry) return ""; // past the last entry, or not inside a tracked block yet
+    if (key === "currentlyWorking") return entry.currentlyWorkHere ? "Yes" : "No";
+    return entry[WORK_HISTORY_KEY_TO_FIELD[key]] || "";
+  }
+
   function resolveValue(key, profile) {
+    const workHistoryValue = peekWorkHistoryValue(key, profile);
+    if (workHistoryValue !== undefined) return workHistoryValue;
     if (key === "fullName") {
       return `${profile.firstName || ""} ${profile.lastName || ""}`.trim();
     }
@@ -560,6 +594,7 @@
 
   function runAutofill(profile) {
     injectHighlightStyle();
+    workHistoryBlockIndex = -1; // reset the repeatable-work-block cursor for this pass
     const elements = getFillableElements();
     const { radioGroups, checkboxGroups, singles } = groupRadiosAndCheckboxes(elements);
     let filledCount = 0;
@@ -645,6 +680,13 @@
       if (CONDITIONAL_FOLLOWUP_PATTERN.test(signal)) continue;
       const key = matchKeyForSignal(signal);
       if (!key) continue;
+      // A Job Title field always marks the start of a new repeatable work
+      // block (see peekWorkHistoryValue above) — advance the shared cursor
+      // here, once per element, before anything in this block resolves a
+      // value from it.
+      if (key === "jobTitle" && Array.isArray(profile.workHistoryEntries) && profile.workHistoryEntries.length > 0) {
+        workHistoryBlockIndex++;
+      }
       if (!keyHasFillableValue(key, profile)) continue;
 
       let didFill = false;

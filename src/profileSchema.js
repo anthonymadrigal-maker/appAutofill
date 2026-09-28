@@ -192,6 +192,37 @@ const PROFILE_SCHEMA = [
   }
 ];
 
+// A separate, repeatable list of jobs — not part of PROFILE_SCHEMA's flat
+// field list above, since each entry needs its own Job Title / Company /
+// etc. rather than one shared value. Built for application systems (e.g.
+// Workday's "My Experience" page) that ask you to add each job as its own
+// block via an "Add Another" button: enter jobs here in the SAME order
+// you'll add the blocks on the form, and content.js fills the Nth block
+// with the Nth entry, tracking its position by that block's own "Job
+// Title" field (always present, always first) rather than assuming every
+// field renders on every block — e.g. Workday hides the "To" date field
+// entirely once "I currently work here" is checked.
+// Left empty (the default), the single "Most Recent Work Experience"
+// fields above are used instead, so sites that only ask for one job are
+// unaffected.
+const WORK_HISTORY_ENTRY_FIELDS = [
+  { key: "jobTitle", label: "Job Title", type: "text" },
+  { key: "company", label: "Company", type: "text" },
+  { key: "location", label: "Location", type: "text" },
+  { key: "currentlyWorkHere", label: "I currently work here", type: "checkbox" },
+  { key: "startDate", label: "From", type: "text", placeholder: "MM/YYYY" },
+  { key: "endDate", label: "To", type: "text", placeholder: "MM/YYYY" },
+  { key: "description", label: "Role Description", type: "textarea" }
+];
+
+function buildEmptyWorkHistoryEntry() {
+  const entry = {};
+  for (const field of WORK_HISTORY_ENTRY_FIELDS) {
+    entry[field.key] = field.type === "checkbox" ? false : "";
+  }
+  return entry;
+}
+
 function buildDefaultProfile() {
   const profile = {};
   for (const section of PROFILE_SCHEMA) {
@@ -199,10 +230,14 @@ function buildDefaultProfile() {
       profile[field.key] = field.default !== undefined ? field.default : "";
     }
   }
+  profile.workHistoryEntries = [];
   return profile;
 }
 
 // Shared across service worker, options page, popup, and content script.
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { STORAGE_KEY, PROFILE_SCHEMA, buildDefaultProfile };
+  module.exports = {
+    STORAGE_KEY, PROFILE_SCHEMA, buildDefaultProfile,
+    WORK_HISTORY_ENTRY_FIELDS, buildEmptyWorkHistoryEntry
+  };
 }

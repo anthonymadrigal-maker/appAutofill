@@ -31,6 +31,28 @@ only — it is never sent anywhere except into the form fields on the page you
 choose to autofill. Use **Export** on the profile page to back it up to a
 JSON file, or **Import** to restore/move it to another machine.
 
+### Multi-entry work history (Workday and similar)
+
+Some application systems (Workday's "My Experience" page is the main one)
+ask you to add each job as its own repeatable block via an "Add Another"
+button, rather than asking for just one "most recent" job. The **Work
+History (Multiple Entries)** section on the profile page supports this:
+list every job there, in the same order you'll add the blocks on the real
+form. On the application, click **Add Another** yourself as many times as
+you have jobs listed, *then* click **Autofill This Page** — the first
+entry fills the first block, the second fills the second, and so on. It
+tracks which block is which by that block's Job Title field (always
+present, always first), so it stays correctly aligned even when Workday
+hides the "To" date entirely for a job marked "I currently work here".
+Leave this list empty to keep using the single "Most Recent Work
+Experience" section instead, for sites that only ask for one job.
+
+The From/To date fields within each block aren't autofilled yet — Workday
+labels them with just "From"/"To", too generic to match safely without a
+real selector from the live page (a loose match risks filling in the wrong
+date on some unrelated field elsewhere). Job Title, Company, Location, "I
+currently work here", and Role Description all fill correctly per block.
+
 ## How matching works
 
 `src/content.js` scans every visible, enabled `input` / `select` / `textarea`

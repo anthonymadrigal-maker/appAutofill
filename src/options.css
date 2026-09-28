@@ -213,3 +213,43 @@ body {
 .save-status.success {
   color: #16a34a;
 }
+
+.work-history-entry {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 14px;
+  background: var(--bg);
+}
+
+.work-history-entry-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.work-history-entry-header h3 {
+  font-size: 13.5px;
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.work-history-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  grid-column: 1 / -1;
+}
+
+.work-history-checkbox label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.work-history-empty {
+  color: var(--text-muted);
+  font-size: 12.5px;
+  margin: 0 0 14px;
+}

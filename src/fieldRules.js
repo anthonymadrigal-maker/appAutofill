@@ -89,11 +89,29 @@ const FIELD_RULES = {
   degree: [/\bdegree\s*type\b/, /\bdegree\b/, /\beducation\s*level\b/, /\blevel\s*of\s*education\b/],
 
   currentlyWorking: [/\bcurrently\s*work\s*here\b/, /\bi\s*currently\s*work\b/, /\bthis\s*is\s*my\s*current\s*(job|position|employer)\b/],
-  employer: [/\bcurrent\s*employer\b/, /\bmost\s*recent\s*employer\b/, /\bemployer\s*name\b/, /\bemployer\b/, /\bcompany\s*name\b/],
+  // Bare "Company" (no "name" suffix) is Workday's own label on its
+  // repeatable "Work Experience" blocks.
+  employer: [/\bcurrent\s*employer\b/, /\bmost\s*recent\s*employer\b/, /\bemployer\s*name\b/, /\bemployer\b/, /\bcompany\s*name\b/, /\bcompany\b/],
   jobTitle: [/\bjob\s*title\b/, /\bposition\s*title\b/, /\bcurrent\s*title\b/, /\brole\s*title\b/],
+  // Bare "Location" is this same Workday block's employer-location field,
+  // distinct from the applicant's own address. Excludes "preferred"/
+  // "remote"/"arrangement" context so it doesn't win over remotePreference
+  // or preferredRegion below, which cover actual work-location-preference
+  // questions elsewhere on a form. The exclusion is anchored at the start
+  // of the signal (not a trailing lookahead) since "preferred" can appear
+  // either before or after "location" in the combined signal text (e.g.
+  // "Preferred location").
+  workLocation: [/^(?!.*\b(preferred|prefer|remote|arrangement)\b).*\blocation\b/],
+  // Workday's own work-experience blocks label these fields with just
+  // "From"/"To" — too generic to safely match here (getFieldSignal always
+  // folds in the element's id/name/data-automation-id too, so a plain
+  // "From" label never actually produces a bare "from" signal in
+  // practice, and a loose match risks catching an unrelated date field
+  // elsewhere and filling it with the wrong date). Needs a real selector
+  // from the live page rather than a guess — see README/TODO.
   workStartDate: [/\bemployment\s*start\s*date\b/, /\bwork\s*start\s*date\b/, /\bjob\s*start\s*date\b/],
   workEndDate: [/\bemployment\s*end\s*date\b/, /\bwork\s*end\s*date\b/, /\bjob\s*end\s*date\b/],
-  workDescription: [/\bresponsibilit(y|ies)\b/, /\bjob\s*duties\b/, /\bdescription\s*of\s*(work|role|duties)\b/, /\bsummary\s*of\s*experience\b/],
+  workDescription: [/\bresponsibilit(y|ies)\b/, /\bjob\s*duties\b/, /\bdescription\s*of\s*(work|role|duties)\b/, /\bsummary\s*of\s*experience\b/, /\brole\s*description\b/],
 
   usCitizen: [/\bu\.?\s*s\.?\s*citizen\b/, /\bcitizen\s*of\s*the\s*united\s*states\b/, /\bare\s*you\s*a\s*citizen\b/],
   needsSponsorship: [/\bsponsorship\b/, /\bsponsor(ed)?\s*(now|future)?\s*visa\b/, /\brequire\s*sponsor/],
@@ -158,7 +176,7 @@ const FIELD_MATCH_ORDER = [
   "linkedin", "github", "portfolio",
   "planToAttendGradSchool", "school", "classStanding", "gpaScale", "gpa", "major", "minor",
   "graduationMonth", "graduationYear", "graduationDate", "degree",
-  "currentlyWorking", "employer", "jobTitle", "workStartDate", "workEndDate", "workDescription",
+  "currentlyWorking", "employer", "jobTitle", "workLocation", "workStartDate", "workEndDate", "workDescription",
   "usCitizen", "needsSponsorship", "workAuthorized", "over18", "felonyConviction", "nonCompete",
   "clearanceLevel", "securityClearanceEligible", "securityClearanceGranted", "consentBackgroundCheck", "previouslyEmployedHere", "governmentEmployee",
   "hispanicLatino", "race", "veteranStatus", "disabilityStatus", "gender",
