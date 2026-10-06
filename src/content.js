@@ -193,17 +193,22 @@
   const WORK_HISTORY_REPEATABLE_KEYS = new Set([
     ...Object.keys(WORK_HISTORY_KEY_TO_FIELD), "currentlyWorking", ...WORK_HISTORY_DATE_PART_KEYS
   ]);
-  // The cursor's anchor key: whichever of "jobTitle"/"employer" is matched
-  // FIRST in a given scan wins and stays the anchor for the rest of that
-  // scan, so only block-boundary occurrences of that one key advance the
-  // cursor. Needed because which field actually appears first (and thus
-  // reliably marks a new block) differs by site — Workday's blocks lead
-  // with Job Title, SAP SuccessFactors' lead with Company Name and don't
-  // use the phrase "Job Title" at all (just bare "Title", not matched as
-  // jobTitle) — without this, a site using Company-first order would
-  // double-advance once for Job Title and again for Company within the
-  // very same block.
-  const WORK_HISTORY_ANCHOR_KEYS = new Set(["jobTitle", "employer"]);
+  // The cursor's anchor key: whichever of these is matched FIRST in a
+  // given scan wins and stays the anchor for the rest of that scan, so
+  // only block-boundary occurrences of that one key advance the cursor.
+  // Needed because which field actually appears first (and thus reliably
+  // marks a new block) differs by site — Workday's blocks lead with Job
+  // Title; SAP SuccessFactors' lead with Start Date, then Company Name,
+  // and don't use the phrase "Job Title" at all (just bare "Title", not
+  // matched as jobTitle). workStartDate has to be in this set too and not
+  // just workEndDate/employer: confirmed on a real SuccessFactors page
+  // that Start Date precedes Company Name within the same block, so
+  // without an anchor that fires that early, every date field would read
+  // the previous block's still-stale cursor position instead of its own.
+  // workEndDate is deliberately excluded as a candidate — it's
+  // conditionally absent (hidden once "I currently work here" is
+  // checked), so it can't reliably anchor a block the way Start Date can.
+  const WORK_HISTORY_ANCHOR_KEYS = new Set(["jobTitle", "employer", "workStartDate"]);
   let workHistoryAnchorKey = null;
   let workHistoryBlockIndex = -1;
 
@@ -624,8 +629,67 @@
 
   // ---------- main scan + fill ----------
 
+  // SAP UI5's date picker (confirmed on a real SAP SuccessFactors page via
+  // a live shadow-DOM dump) isn't a plain <input> — it's a custom element
+  // whose own `.value` setter is reachable but, tested live, throws an
+  // internal framework error (DatePicker.js) when written to directly.
+  // The real native <input> living inside its shadow root takes a plain
+  // value-set + input/change dispatch cleanly instead — confirmed in the
+  // same live test — the same approach already used elsewhere in this
+  // file for React-controlled fields. Matched via the `ui5-date-picker`
+  // boolean attribute rather than the custom element's tag name, which
+  // carries an app-specific scoping suffix ("-xweb-calendar-widget" on
+  // the confirmed site) unlikely to be stable across SuccessFactors
+  // tenants.
+  const UI5_DATE_PICKER_SELECTOR = "[ui5-date-picker]";
+
+  function isUi5DatePicker(el) {
+    return !!(el.hasAttribute && el.hasAttribute("ui5-date-picker"));
+  }
+
+  function ui5DatePickerInnerInput(el) {
+    return el.shadowRoot ? el.shadowRoot.querySelector("input") : null;
+  }
+
+  // Work history entries store dates as "MM/YYYY" (matching Workday's own
+  // split month/year fields and the single "Most Recent Work Experience"
+  // section's own format) — this widget's format-pattern is "MM/dd/yyyy"
+  // and expects a day, so default to the 1st rather than leave it blank.
+  function formatForUi5DatePicker(rawValue) {
+    const m = /^(\d{1,2})\s*\/\s*(\d{4})$/.exec((rawValue || "").trim());
+    return m ? `${m[1].padStart(2, "0")}/01/${m[2]}` : rawValue;
+  }
+
+  // A hard DOM-position boundary, not a text-proximity guess: confirmed on
+  // a real site that excluding nearby label text (e.g. "school"/
+  // "education") isn't reliable enough on its own — Formal Education's
+  // own "Location" field still leaked in a later job's city from the
+  // shared work-history cursor, because that cursor only tracks "how many
+  // Job-Title/Company matches have I seen," with no notion of "and a
+  // different section has started since." Any field positioned at or
+  // after this heading is unambiguously past Previous Employment,
+  // regardless of what its own label says.
+  const EDUCATION_SECTION_PATTERN = /\bformal\s*education\b|\beducation\s*history\b/i;
+
+  function findSectionBoundaryElement(pattern) {
+    const candidates = Array.from(
+      document.querySelectorAll("h1, h2, h3, h4, h5, h6, legend, [role='heading'], div, span")
+    );
+    return candidates.find((el) => {
+      const text = (el.textContent || "").trim();
+      return text.length > 0 && text.length < 60 && el.children.length === 0 && pattern.test(text);
+    }) || null;
+  }
+
+  function isPastSectionBoundary(el, boundaryEl) {
+    if (!boundaryEl) return false;
+    // DOCUMENT_POSITION_PRECEDING in the result means boundaryEl comes
+    // before el in the document — i.e. el sits at/after the boundary.
+    return !!(el.compareDocumentPosition(boundaryEl) & Node.DOCUMENT_POSITION_PRECEDING);
+  }
+
   function getFillableElements() {
-    const all = Array.from(document.querySelectorAll("input, select, textarea"));
+    const all = Array.from(document.querySelectorAll(`input, select, textarea, ${UI5_DATE_PICKER_SELECTOR}`));
     return all.filter((el) => {
       if (el.disabled || el.readOnly) return false;
       if (el.tagName === "INPUT" && EXCLUDED_INPUT_TYPES.has((el.type || "text").toLowerCase())) return false;
@@ -691,6 +755,7 @@
     injectHighlightStyle();
     workHistoryBlockIndex = -1; // reset the repeatable-work-block cursor for this pass
     workHistoryAnchorKey = null;
+    const educationBoundaryEl = findSectionBoundaryElement(EDUCATION_SECTION_PATTERN);
     const elements = getFillableElements();
     const { radioGroups, checkboxGroups, singles } = groupRadiosAndCheckboxes(elements);
     let filledCount = 0;
@@ -776,6 +841,10 @@
       if (CONDITIONAL_FOLLOWUP_PATTERN.test(signal)) continue;
       const key = matchKeyForSignal(signal);
       if (!key) continue;
+      // Past the Formal Education heading (or similar), a repeatable
+      // work-history key never applies regardless of what its own label
+      // matched — see findSectionBoundaryElement above.
+      if (WORK_HISTORY_REPEATABLE_KEYS.has(key) && isPastSectionBoundary(el, educationBoundaryEl)) continue;
       // Whichever of Job Title / Company marks the start of a new
       // repeatable work block on THIS page (see WORK_HISTORY_ANCHOR_KEYS
       // above) advances the shared cursor here, once per element, before
@@ -803,6 +872,9 @@
         }
       } else if (el.tagName === "INPUT" && el.type === "checkbox") {
         didFill = fillSingleCheckbox(el, key, resolveValue(key, profile));
+      } else if (isUi5DatePicker(el)) {
+        const inner = ui5DatePickerInnerInput(el);
+        if (inner) didFill = fillTextLike(inner, formatForUi5DatePicker(resolveValue(key, profile)));
       } else if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") {
         const dateVal = formatForDateInput(el, key, profile);
         if (dateVal !== undefined) {

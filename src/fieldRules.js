@@ -140,8 +140,22 @@ const FIELD_RULES = {
   // or after "location" in the combined signal text (e.g. "Preferred
   // location").
   workLocation: [/^(?!.*\b(preferred|prefer|remote|arrangement|school|major|degree|education)\b).*\blocation\b/],
-  workStartDate: [/\bemployment\s*start\s*date\b/, /\bwork\s*start\s*date\b/, /\bjob\s*start\s*date\b/],
-  workEndDate: [/\bemployment\s*end\s*date\b/, /\bwork\s*end\s*date\b/, /\bjob\s*end\s*date\b/],
+  // The bare fallback is safe now that content.js gates every repeatable
+  // work-history key on DOM position relative to a "Formal Education"
+  // heading when one exists (confirmed needed on a real SAP
+  // SuccessFactors page: its Previous Employment and Formal Education
+  // sections both label their date fields with nothing but bare "Start
+  // Date"/"End Date"). The school/education/major/degree exclusion here
+  // is a secondary, best-effort layer for sites without a clean heading
+  // to anchor on.
+  workStartDate: [
+    /\bemployment\s*start\s*date\b/, /\bwork\s*start\s*date\b/, /\bjob\s*start\s*date\b/,
+    /^(?!.*\b(school|education|degree|major)\b).*\bstart\s*date\b/
+  ],
+  workEndDate: [
+    /\bemployment\s*end\s*date\b/, /\bwork\s*end\s*date\b/, /\bjob\s*end\s*date\b/,
+    /^(?!.*\b(school|education|degree|major)\b).*\bend\s*date\b/
+  ],
   // Workday's From/To date fields aren't one MM/YYYY input — confirmed via
   // a live DOM dump — they're two separate text inputs per date (Month,
   // Year), each with a generic id like "...startDate-dateSectionMonth-

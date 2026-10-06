@@ -51,14 +51,28 @@ Every field in each block fills, including the From/To dates — Workday
 splits each date into two separate Month/Year text inputs rather than one
 combined field, which content.js fills from the entry's stored "MM/YYYY"
 value. On SAP SuccessFactors career sites, the same list also fills Type
-of Business and Reason For Leaving, which Workday doesn't ask for;
-Supervisor Name/Title/Phone are deliberately never filled, even if a site
-asks — more personal than anything else on the form, left for you to type
-by hand every time. The block cursor tracks position using whichever of
-Job Title or Company appears first in a block (Workday leads with Job
-Title; SuccessFactors leads with Company and doesn't label the role field
-"Job Title" at all, just bare "Title" — not matched yet, so that one field
-stays blank for now on SuccessFactors specifically).
+of Business, Title (that site's bare label for the role, not "Job Title"),
+and Reason For Leaving, which Workday doesn't ask for; Supervisor Name/
+Title/Phone are deliberately never filled, even if a site asks — more
+personal than anything else on the form, left for you to type by hand
+every time. SuccessFactors' Start/End Date fields fill too, written
+through a custom SAP UI5 date-picker web component (its real `<input>`
+lives inside a shadow root — setting the component's own `value` directly
+throws an internal framework error, confirmed live, so content.js reaches
+into the shadow root instead) — defaulted to the 1st of the month, since
+entries only store month/year.
+
+The block cursor tracks position using whichever of Job Title, Company,
+or Start Date appears first in a block, since that differs by site:
+Workday leads with Job Title, SuccessFactors leads with Start Date (then
+Company Name, and never the phrase "Job Title" — just bare "Title"). A
+field whose label is identical between two different repeatable sections
+(SuccessFactors uses bare "Start Date"/"End Date"/"Location" on both
+Previous Employment and Formal Education) is additionally gated on actual
+DOM position relative to the next "Formal Education"-style heading, not
+just nearby label text — confirmed necessary: excluding nearby text alone
+still let a later job's city leak into the Formal Education Location
+field once the work-history cursor had nowhere else to go.
 
 ## How matching works
 
