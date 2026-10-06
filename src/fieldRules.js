@@ -114,7 +114,18 @@ const FIELD_RULES = {
   // Bare "Company" (no "name" suffix) is Workday's own label on its
   // repeatable "Work Experience" blocks.
   employer: [/\bcurrent\s*employer\b/, /\bmost\s*recent\s*employer\b/, /\bemployer\s*name\b/, /\bemployer\b/, /\bcompany\s*name\b/, /\bcompany\b/],
-  jobTitle: [/\bjob\s*title\b/, /\bposition\s*title\b/, /\bcurrent\s*title\b/, /\brole\s*title\b/],
+  // The last pattern's bare "title" is for SAP SuccessFactors' Previous
+  // Employment block, which labels the role field just "Title" — no
+  // qualifying word at all. Confirmed safe in practice: tested against a
+  // real 8-entry work history and the shared block cursor (anchored on
+  // Company Name there, since this bare label doesn't win any of the more
+  // specific patterns above) kept every Title aligned with the right job.
+  // Excludes a few contexts where bare "Title" means something else
+  // entirely (a name prefix, a document/page/slide title).
+  jobTitle: [
+    /\bjob\s*title\b/, /\bposition\s*title\b/, /\bcurrent\s*title\b/, /\brole\s*title\b/,
+    /^(?!.*\b(page|document|slide|prefix|salutation|mr|mrs|ms|dr)\b).*\btitle\b/
+  ],
   // Bare "Location" is this same Workday block's employer-location field,
   // distinct from the applicant's own address. Excludes "preferred"/
   // "remote"/"arrangement" context so it doesn't win over remotePreference
@@ -196,9 +207,16 @@ const FIELD_RULES = {
     /\bdesired\s*salary\b/, /\bexpected\s*salary\b/, /\bsalary\s*expect/, /\bcompensation\s*expect/,
     /\bpay\s*expect/, /\bsalary\s*requirement/, /\b(salary|wage|compensation|pay)\b.*\brequir/
   ],
+  // The bare "start date" fallback is scoped away from work-history /
+  // education context: a repeatable Previous Employment or Formal
+  // Education block (SAP SuccessFactors confirmed) also just says "Start
+  // Date" with no qualifier, and without this exclusion a job or school
+  // start date could get silently overwritten with "when can you start"
+  // instead.
   availableStartDate: [
     /\bwhen\s*can\s*you\s*start\b/, /\bavailab(le|ility)\s*(to\s*start|date)\b/, /\bdate\s*availab(le|ility)\b/,
-    /\bearliest\s*start\s*date\b/, /\bstart\s*date\b/
+    /\bearliest\s*start\s*date\b/,
+    /^(?!.*\b(company|employer|school|degree|major|education)\b).*\bstart\s*date\b/
   ],
   willingToRelocate: [/\brelocat(e|ion)\b/],
   availableForOvertime: [/\bavailable\s*for\s*overtime\b/, /\bwork\s*overtime\b/, /\bwilling\s*to\s*work\s*overtime\b/],
