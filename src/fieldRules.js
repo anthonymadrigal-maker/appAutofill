@@ -53,7 +53,15 @@ const FIELD_RULES = {
   ],
   addressCity: [/\bcity\b/, /\btown\b/],
   addressCountry: [/\bcountry\b/, /\bnation(ality)?\b/],
-  addressStreet: [/\baddress\s*line\s*1\b/, /\bstreet\s*address\b/, /\bmailing\s*address\b/, /\bstreet\b/, /\baddress\b/],
+  // Confirmed on a real site: the bare "address" fallback was matching
+  // BOTH "Address Line 1" and "Address Line 2", filling the full street
+  // address into both — "Address Line 2" is for apartment/suite/unit
+  // info, a different (and usually optional) value we don't have, not a
+  // repeat of line 1.
+  addressStreet: [
+    /\baddress\s*line\s*1\b/, /\bstreet\s*address\b/, /\bmailing\s*address\b/, /\bstreet\b/,
+    /^(?!.*\bline\s*2\b).*\baddress\b/
+  ],
 
   hrMayContactOtherPositions: [/\bhr\s*may\s*contact\b/, /\bcontact\s*(you|me)\s*regarding\s*other\s*positions\b/],
 
@@ -111,11 +119,16 @@ const FIELD_RULES = {
   // distinct from the applicant's own address. Excludes "preferred"/
   // "remote"/"arrangement" context so it doesn't win over remotePreference
   // or preferredRegion below, which cover actual work-location-preference
-  // questions elsewhere on a form. The exclusion is anchored at the start
-  // of the signal (not a trailing lookahead) since "preferred" can appear
-  // either before or after "location" in the combined signal text (e.g.
-  // "Preferred location").
-  workLocation: [/^(?!.*\b(preferred|prefer|remote|arrangement)\b).*\blocation\b/],
+  // questions elsewhere on a form. Also excludes "school"/"major"/
+  // "degree"/"education" context: a bare "Location" field can equally be
+  // Formal Education's own school-location field (SAP SuccessFactors
+  // confirmed: both sections use the identical bare label) — safer to
+  // leave that one blank than to risk a job's location landing on a
+  // school record. The exclusion is anchored at the start of the signal
+  // (not a trailing lookahead) since these words can appear either before
+  // or after "location" in the combined signal text (e.g. "Preferred
+  // location").
+  workLocation: [/^(?!.*\b(preferred|prefer|remote|arrangement|school|major|degree|education)\b).*\blocation\b/],
   workStartDate: [/\bemployment\s*start\s*date\b/, /\bwork\s*start\s*date\b/, /\bjob\s*start\s*date\b/],
   workEndDate: [/\bemployment\s*end\s*date\b/, /\bwork\s*end\s*date\b/, /\bjob\s*end\s*date\b/],
   // Workday's From/To date fields aren't one MM/YYYY input — confirmed via
