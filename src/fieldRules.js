@@ -24,7 +24,15 @@ const FIELD_RULES = {
   preferredName: [/\bpreferred\s*name\b/, /\bnick\s*name\b/, /\bgo\s*by\b/, /\bpreferred\s*first\s*name\b/],
 
   email: [/\be[\s-]?mail\b/],
-  phone: [/\bphone\b/, /\bmobile\b/, /\btelephone\b/, /\bcell\s*number\b/, /\bcontact\s*number\b/],
+  // The bare "phone" pattern is anchored to exclude "home" so a separate,
+  // optional "Home Phone" field (SAP SuccessFactors confirmed: shown right
+  // next to a required "Cell Phone" field) is left blank rather than
+  // silently duplicating the same mobile number into both.
+  phone: [
+    /^(?!.*\bhome\b).*\bphone\b/, /\bmobile\b/, /\btelephone\b/,
+    /\bcell\s*number\b/, /\bcontact\s*number\b/
+  ],
+  middleInitial: [/\bmiddle\s*initial\b/, /\bmiddle\s*name\b/],
 
   addressZip: [/\bzip\b/, /\bpostal\s*code\b/, /\bpost\s*code\b/],
   // The trailing lookahead excludes any signal that mentions "preferred"
@@ -47,6 +55,8 @@ const FIELD_RULES = {
   addressCountry: [/\bcountry\b/, /\bnation(ality)?\b/],
   addressStreet: [/\baddress\s*line\s*1\b/, /\bstreet\s*address\b/, /\bmailing\s*address\b/, /\bstreet\b/, /\baddress\b/],
 
+  hrMayContactOtherPositions: [/\bhr\s*may\s*contact\b/, /\bcontact\s*(you|me)\s*regarding\s*other\s*positions\b/],
+
   linkedin: [/\blinked\s*in\b/],
   github: [/\bgit\s*hub\b/],
   portfolio: [/\bportfolio\b/, /\bpersonal\s*website\b/, /\bwebsite\b/, /\bother\s*url\b/],
@@ -64,6 +74,10 @@ const FIELD_RULES = {
     /\bwhat\s*college\b/, /\bwhich\s*college\b/
   ],
   planToAttendGradSchool: [/\bgraduate\s*school\b/, /\bgrad\s*school\b/],
+  currentlyEnrolled: [
+    /\bcurrently\s*enrolled\b/,
+    /\benrolled\s*(at|in)\s*an?\s*(accredited\s*)?(college|university|school)\b/
+  ],
   // Checked before "school" isn't necessary since school no longer matches
   // bare "college", but keep this ahead of "degree" — both mention academic
   // progress and "year of study" shouldn't fall through to a degree-level
@@ -117,6 +131,8 @@ const FIELD_RULES = {
   workEndMonth: [/\bend\s*date\b.*\bmonth\b/],
   workEndYear: [/\bend\s*date\b.*\byear\b/],
   workDescription: [/\bresponsibilit(y|ies)\b/, /\bjob\s*duties\b/, /\bdescription\s*of\s*(work|role|duties)\b/, /\bsummary\s*of\s*experience\b/, /\brole\s*description\b/],
+  typeOfBusiness: [/\btype\s*of\s*business\b/],
+  reasonForLeaving: [/\breason\s*for\s*leaving\b/, /\breason\s*(you\s*)?left\b/],
 
   usCitizen: [/\bu\.?\s*s\.?\s*citizen\b/, /\bcitizen\s*of\s*the\s*united\s*states\b/, /\bare\s*you\s*a\s*citizen\b/],
   needsSponsorship: [/\bsponsorship\b/, /\bsponsor(ed)?\s*(now|future)?\s*visa\b/, /\brequire\s*sponsor/],
@@ -138,6 +154,13 @@ const FIELD_RULES = {
     /\bgovernment\s*employee\b/, /\bemployed\s*by\s*(a\s*|the\s*)?government\b/,
     /\bworked\s*for\s*(a\s*)?government\s*(entity|agency)?\b/,
     /\bgovernment\s*entity\s*currently\s*or\s*in\s*the\s*past\b/
+  ],
+  // EEO-style conflict-of-interest question, worded around the employer's
+  // own name (e.g. "...relationship with any Hawaiian Electric employees"),
+  // so matched on the generic shape rather than any one company's name.
+  relativesEmployedHere: [
+    /\b(personal|familial|household)\b.*\brelationship\b.*\bemploye/,
+    /\brelative\b.*\bemployed\b.*\b(here|company|this)\b/
   ],
 
   hispanicLatino: [/\bhispanic\b/, /\blatino\b/, /\blatinx\b/, /\blatina\b/],
@@ -165,29 +188,40 @@ const FIELD_RULES = {
     /\bearliest\s*start\s*date\b/, /\bstart\s*date\b/
   ],
   willingToRelocate: [/\brelocat(e|ion)\b/],
+  availableForOvertime: [/\bavailable\s*for\s*overtime\b/, /\bwork\s*overtime\b/, /\bwilling\s*to\s*work\s*overtime\b/],
+  availableWeekends: [/\bwork\s*weekends?\b/, /\bable\s*to\s*work\s*weekends?\b/],
+  availableHolidays: [/\bwork\s*holidays?\b/, /\bable\s*to\s*work\s*holidays?\b/],
   remotePreference: [/\bremote\b/, /\bwork\s*(location|arrangement)\s*preference\b/, /\blocation\s*preference\b/, /\bonsite\s*or\s*remote\b/],
   noticePeriod: [/\bnotice\s*period\b/],
   howHeard: [/\bhow\s*did\s*you\s*hear\b/, /\breferral\s*source\b/, /\bhear\s*about\s*(us|this|the\s*role|the\s*position)\b/],
 
-  fullName: [/\bfull\s*name\b/, /\blegal\s*name\b/, /\byour\s*name\b/, /^\s*name\s*$/, /\bapplicant\s*name\b/]
+  // "Typed Signature" (an e-signature attestation field on a certification
+  // section — SAP SuccessFactors confirmed) expects the applicant's full
+  // legal name typed as a signature, same as fullName's other patterns.
+  fullName: [
+    /\bfull\s*name\b/, /\blegal\s*name\b/, /\byour\s*name\b/, /^\s*name\s*$/, /\bapplicant\s*name\b/,
+    /\btyped\s*signature\b/, /\be[\s-]?signature\b/
+  ]
 };
 
 // Most specific / narrow first, broadest last. Any key not listed here
 // is matched in the (arbitrary) order Object.keys() returns.
 const FIELD_MATCH_ORDER = [
-  "firstName", "lastName", "preferredName",
+  "firstName", "middleInitial", "lastName", "preferredName",
   "email", "phone",
   "addressZip", "addressState", "addressCity", "addressCountry", "addressStreet",
-  "linkedin", "github", "portfolio",
-  "planToAttendGradSchool", "school", "classStanding", "gpaScale", "gpa", "major", "minor",
+  "linkedin", "github", "portfolio", "hrMayContactOtherPositions",
+  "planToAttendGradSchool", "currentlyEnrolled", "school", "classStanding", "gpaScale", "gpa", "major", "minor",
   "graduationMonth", "graduationYear", "graduationDate", "degree",
-  "currentlyWorking", "employer", "jobTitle", "workLocation",
+  "currentlyWorking", "employer", "jobTitle", "workLocation", "typeOfBusiness", "reasonForLeaving",
   "workStartMonth", "workStartYear", "workEndMonth", "workEndYear", "workStartDate", "workEndDate", "workDescription",
   "usCitizen", "needsSponsorship", "workAuthorized", "over18", "felonyConviction", "nonCompete",
-  "clearanceLevel", "securityClearanceEligible", "securityClearanceGranted", "consentBackgroundCheck", "previouslyEmployedHere", "governmentEmployee",
+  "clearanceLevel", "securityClearanceEligible", "securityClearanceGranted", "consentBackgroundCheck", "previouslyEmployedHere",
+  "governmentEmployee", "relativesEmployedHere",
   "hispanicLatino", "race", "veteranStatus", "disabilityStatus", "gender",
   "referrerName", "referredByEmployee", "travelPercentage", "willingToTravel", "validDriversLicense", "preferredRegion",
-  "desiredSalary", "availableStartDate", "willingToRelocate", "remotePreference", "noticePeriod", "howHeard",
+  "desiredSalary", "availableStartDate", "willingToRelocate", "availableForOvertime", "availableWeekends", "availableHolidays",
+  "remotePreference", "noticePeriod", "howHeard",
   "fullName"
 ];
 

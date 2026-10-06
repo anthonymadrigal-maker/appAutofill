@@ -16,6 +16,7 @@ const PROFILE_SCHEMA = [
     title: "Personal Information",
     fields: [
       { key: "firstName", label: "First Name", type: "text" },
+      { key: "middleInitial", label: "Middle Initial", type: "text" },
       { key: "lastName", label: "Last Name", type: "text" },
       { key: "preferredName", label: "Preferred / Nickname", type: "text" },
       { key: "email", label: "Email", type: "email" },
@@ -27,7 +28,8 @@ const PROFILE_SCHEMA = [
       { key: "addressCountry", label: "Country", type: "text", default: "United States" },
       { key: "linkedin", label: "LinkedIn URL", type: "url" },
       { key: "github", label: "GitHub URL", type: "url" },
-      { key: "portfolio", label: "Portfolio / Personal Website", type: "url" }
+      { key: "portfolio", label: "Portfolio / Personal Website", type: "url" },
+      { key: "hrMayContactOtherPositions", label: "HR may contact me regarding other positions", type: "yesno" }
     ]
   },
   {
@@ -78,6 +80,7 @@ const PROFILE_SCHEMA = [
         ]
       },
       { key: "planToAttendGradSchool", label: "Do you plan to attend graduate school?", type: "yesno" },
+      { key: "currentlyEnrolled", label: "Are you currently enrolled at an accredited college or university?", type: "yesno" },
       { key: "gpa", label: "GPA", type: "text" },
       { key: "gpaScale", label: "GPA Scale", type: "text", default: "4.0" },
       {
@@ -116,6 +119,7 @@ const PROFILE_SCHEMA = [
       { key: "nonCompete", label: "Are you subject to a non-compete agreement?", type: "yesno" },
       { key: "previouslyEmployedHere", label: "Have you previously been employed by this company?", type: "yesno" },
       { key: "governmentEmployee", label: "Are you currently a government employee, or have you been in the past (includes military service)?", type: "yesno" },
+      { key: "relativesEmployedHere", label: "Do you have a close personal, familial, or household relationship with any employees of this company?", type: "yesno" },
       { key: "consentBackgroundCheck", label: "Do you consent to a background check?", type: "yesno" },
       { key: "securityClearanceEligible", label: "Are you eligible to obtain a security clearance?", type: "yesno" },
       { key: "securityClearanceGranted", label: "Have you ever been granted a security clearance?", type: "yesno" },
@@ -198,6 +202,9 @@ const PROFILE_SCHEMA = [
       { key: "desiredSalary", label: "Desired Salary / Compensation", type: "text" },
       { key: "availableStartDate", label: "Available Start Date", type: "text" },
       { key: "willingToRelocate", label: "Willing to Relocate?", type: "yesno" },
+      { key: "availableForOvertime", label: "Available for Overtime?", type: "yesno" },
+      { key: "availableWeekends", label: "Able to Work Weekends?", type: "yesno" },
+      { key: "availableHolidays", label: "Able to Work Holidays?", type: "yesno" },
       {
         key: "remotePreference",
         label: "Work Location Preference",
@@ -223,14 +230,20 @@ const PROFILE_SCHEMA = [
 // Left empty (the default), the single "Most Recent Work Experience"
 // fields above are used instead, so sites that only ask for one job are
 // unaffected.
+// Deliberately excludes supervisor name/title/phone: some sites (SAP
+// SuccessFactors confirmed) ask for a past supervisor's contact details per
+// job, which is more personal than anything else here — left for the
+// applicant to type by hand every time, by design, not an oversight.
 const WORK_HISTORY_ENTRY_FIELDS = [
   { key: "jobTitle", label: "Job Title", type: "text" },
   { key: "company", label: "Company", type: "text" },
   { key: "location", label: "Location", type: "text" },
+  { key: "typeOfBusiness", label: "Type of Business", type: "text" },
   { key: "currentlyWorkHere", label: "I currently work here", type: "checkbox" },
   { key: "startDate", label: "From", type: "text", placeholder: "MM/YYYY" },
   { key: "endDate", label: "To", type: "text", placeholder: "MM/YYYY" },
-  { key: "description", label: "Role Description", type: "textarea" }
+  { key: "description", label: "Role Description / Job Duties", type: "textarea" },
+  { key: "reasonForLeaving", label: "Reason For Leaving", type: "text" }
 ];
 
 function buildEmptyWorkHistoryEntry() {

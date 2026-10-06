@@ -50,7 +50,15 @@ Experience" section instead, for sites that only ask for one job.
 Every field in each block fills, including the From/To dates — Workday
 splits each date into two separate Month/Year text inputs rather than one
 combined field, which content.js fills from the entry's stored "MM/YYYY"
-value.
+value. On SAP SuccessFactors career sites, the same list also fills Type
+of Business and Reason For Leaving, which Workday doesn't ask for;
+Supervisor Name/Title/Phone are deliberately never filled, even if a site
+asks — more personal than anything else on the form, left for you to type
+by hand every time. The block cursor tracks position using whichever of
+Job Title or Company appears first in a block (Workday leads with Job
+Title; SuccessFactors leads with Company and doesn't label the role field
+"Job Title" at all, just bare "Title" — not matched yet, so that one field
+stays blank for now on SuccessFactors specifically).
 
 ## How matching works
 

@@ -139,7 +139,16 @@
 
   // ---------- matching ----------
 
+  // Never fill a past supervisor's own contact details, by explicit
+  // design choice — more personal than anything else on a Work Experience
+  // block, and a field asking for it should always be left for the
+  // applicant to type by hand. Checked before any key-matching so it wins
+  // regardless of which key a supervisor field's own wording might
+  // otherwise resolve to (e.g. "Supervisor Phone" bare-matching "phone").
+  const NEVER_FILL_PATTERN = /\bsupervisor\b/;
+
   function matchKeyForSignal(signal) {
+    if (NEVER_FILL_PATTERN.test(signal)) return null;
     for (const key of FIELD_MATCH_ORDER) {
       const patterns = FIELD_RULES[key];
       if (patterns && patterns.some((re) => re.test(signal))) return key;
@@ -154,23 +163,26 @@
   // ---------- value resolution ----------
 
   // Repeatable "Work Experience" blocks (Workday's "My Experience" page,
-  // and any similarly-structured ATS): profile.workHistoryEntries is an
-  // ordered array the applicant fills in once, in the same order they'll
-  // click "Add Another" on the real form. Rather than track a separate
-  // occurrence counter per field key (which drifts out of sync the moment
-  // a field is conditionally absent — Workday drops the "To" date entirely
-  // once "I currently work here" is checked), a single shared cursor marks
-  // "which block are we in," advanced only when a Job Title field is
-  // matched — it's the one field every block is guaranteed to have, always
-  // first. Every other repeatable-key field in that same block just reads
-  // the cursor's current position without moving it.
+  // SAP SuccessFactors' "Previous Employment" section, and any similarly-
+  // structured ATS): profile.workHistoryEntries is an ordered array the
+  // applicant fills in once, in the same order they'll click "Add Another"
+  // (or that the site pre-renders) on the real form. Rather than track a
+  // separate occurrence counter per field key (which drifts out of sync
+  // the moment a field is conditionally absent — Workday drops the "To"
+  // date entirely once "I currently work here" is checked), a single
+  // shared cursor marks "which block are we in," advanced once per block
+  // by whichever of Job Title or Company is this page's anchor. Every
+  // other repeatable-key field in that same block just reads the cursor's
+  // current position without moving it.
   const WORK_HISTORY_KEY_TO_FIELD = {
     jobTitle: "jobTitle",
     employer: "company",
     workLocation: "location",
     workStartDate: "startDate",
     workEndDate: "endDate",
-    workDescription: "description"
+    workDescription: "description",
+    typeOfBusiness: "typeOfBusiness",
+    reasonForLeaving: "reasonForLeaving"
   };
   // Workday doesn't render one MM/YYYY input for a work-experience date —
   // confirmed via a live DOM dump — it's two separate text inputs per
@@ -181,6 +193,18 @@
   const WORK_HISTORY_REPEATABLE_KEYS = new Set([
     ...Object.keys(WORK_HISTORY_KEY_TO_FIELD), "currentlyWorking", ...WORK_HISTORY_DATE_PART_KEYS
   ]);
+  // The cursor's anchor key: whichever of "jobTitle"/"employer" is matched
+  // FIRST in a given scan wins and stays the anchor for the rest of that
+  // scan, so only block-boundary occurrences of that one key advance the
+  // cursor. Needed because which field actually appears first (and thus
+  // reliably marks a new block) differs by site — Workday's blocks lead
+  // with Job Title, SAP SuccessFactors' lead with Company Name and don't
+  // use the phrase "Job Title" at all (just bare "Title", not matched as
+  // jobTitle) — without this, a site using Company-first order would
+  // double-advance once for Job Title and again for Company within the
+  // very same block.
+  const WORK_HISTORY_ANCHOR_KEYS = new Set(["jobTitle", "employer"]);
+  let workHistoryAnchorKey = null;
   let workHistoryBlockIndex = -1;
 
   function splitMonthYear(dateStr) {
@@ -666,6 +690,7 @@
   function runAutofill(profile) {
     injectHighlightStyle();
     workHistoryBlockIndex = -1; // reset the repeatable-work-block cursor for this pass
+    workHistoryAnchorKey = null;
     const elements = getFillableElements();
     const { radioGroups, checkboxGroups, singles } = groupRadiosAndCheckboxes(elements);
     let filledCount = 0;
@@ -751,12 +776,16 @@
       if (CONDITIONAL_FOLLOWUP_PATTERN.test(signal)) continue;
       const key = matchKeyForSignal(signal);
       if (!key) continue;
-      // A Job Title field always marks the start of a new repeatable work
-      // block (see peekWorkHistoryValue above) — advance the shared cursor
-      // here, once per element, before anything in this block resolves a
-      // value from it.
-      if (key === "jobTitle" && Array.isArray(profile.workHistoryEntries) && profile.workHistoryEntries.length > 0) {
-        workHistoryBlockIndex++;
+      // Whichever of Job Title / Company marks the start of a new
+      // repeatable work block on THIS page (see WORK_HISTORY_ANCHOR_KEYS
+      // above) advances the shared cursor here, once per element, before
+      // anything in this block resolves a value from it.
+      if (
+        WORK_HISTORY_ANCHOR_KEYS.has(key) &&
+        Array.isArray(profile.workHistoryEntries) && profile.workHistoryEntries.length > 0
+      ) {
+        if (workHistoryAnchorKey === null) workHistoryAnchorKey = key;
+        if (key === workHistoryAnchorKey) workHistoryBlockIndex++;
       }
       if (!keyHasFillableValue(key, profile)) continue;
 
